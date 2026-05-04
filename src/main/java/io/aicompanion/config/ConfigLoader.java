@@ -1,0 +1,88 @@
+package io.aicompanion.config;
+
+import org.yaml.snakeyaml.Yaml;
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.*;
+
+public class ConfigLoader {
+
+    public static Config load(Map<String, String> cliOverrides) {
+        Map<String, Object> file = loadFile();
+        return new Config(
+            resolve("agent",               cliOverrides, file, null),
+            resolveList("agent_extra_args", cliOverrides, file, List.of()),
+            resolve("tasks_dir",           cliOverrides, file, "feature/tasks"),
+            resolveList("task_extensions",  cliOverrides, file, List.of("md", "txt")),
+            resolve("task_sort",           cliOverrides, file, "alphabetical"),
+            resolve("project_dir",         cliOverrides, file, "."),
+            resolve("test_command",        cliOverrides, file, autoDetectTestCommand()),
+            resolveBoolean("test_enabled",     cliOverrides, file, true),
+            resolveBoolean("stop_on_failure",  cliOverrides, file, true),
+            resolveInt("session_timeout_min",  cliOverrides, file, 10),
+            resolveBoolean("reuse_session",    cliOverrides, file, true),
+            resolve("report_dir",          cliOverrides, file, ".aicompanion/logs"),
+            resolveBoolean("report_enabled",   cliOverrides, file, true),
+            resolveBoolean("log_tool_calls",   cliOverrides, file, true),
+            resolveBoolean("log_thoughts",     cliOverrides, file, false),
+            resolveBoolean("yolo",             cliOverrides, file, true)
+        );
+    }
+
+    /** Priority: CLI flag → AICOMPANION_<KEY> env var → config file → default */
+    private static String resolve(String key, Map<String, String> cli,
+                                  Map<String, Object> file, String def) {
+        if (cli != null && cli.containsKey(key)) return cli.get(key);
+        String env = System.getenv("AICOMPANION_" + key.toUpperCase());
+        if (env != null && !env.isBlank()) return env;
+        Object val = file.get(key);
+        if (val != null) return String.valueOf(val);
+        return def;
+    }
+
+    private static boolean resolveBoolean(String key, Map<String, String> cli,
+                                           Map<String, Object> file, boolean def) {
+        String val = resolve(key, cli, file, null);
+        if (val == null) return def;
+        return "true".equalsIgnoreCase(val) || "1".equals(val) || "yes".equalsIgnoreCase(val);
+    }
+
+    private static int resolveInt(String key, Map<String, String> cli,
+                                   Map<String, Object> file, int def) {
+        String val = resolve(key, cli, file, null);
+        if (val == null) return def;
+        try { return Integer.parseInt(val); } catch (NumberFormatException e) { return def; }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> resolveList(String key, Map<String, String> cli,
+                                             Map<String, Object> file, List<String> def) {
+        if (cli != null && cli.containsKey(key)) return Arrays.asList(cli.get(key).split(","));
+        String env = System.getenv("AICOMPANION_" + key.toUpperCase());
+        if (env != null && !env.isBlank()) return Arrays.asList(env.split(","));
+        Object val = file.get(key);
+        if (val instanceof List<?> list) return (List<String>) list;
+        if (val instanceof String s) return Arrays.asList(s.split(","));
+        return def;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> loadFile() {
+        Path path = Path.of(".aicompanion.yml");
+        if (!Files.exists(path)) return new HashMap<>();
+        try (var reader = Files.newBufferedReader(path)) {
+            Map<String, Object> result = new Yaml().load(reader);
+            return result != null ? result : new HashMap<>();
+        } catch (IOException e) {
+            return new HashMap<>();
+        }
+    }
+
+    private static String autoDetectTestCommand() {
+        if (Files.exists(Path.of("pom.xml")))      return "mvn test -q";
+        if (Files.exists(Path.of("build.gradle"))) return "gradle test";
+        if (Files.exists(Path.of("package.json"))) return "npm test";
+        if (Files.exists(Path.of("Makefile")))     return "make test";
+        return null;
+    }
+}

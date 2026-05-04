@@ -1,0 +1,22 @@
+package io.aicompanion.config;
+
+import java.util.List;
+
+public record Config(
+    String       agent,
+    List<String> agentExtraArgs,
+    String       tasksDir,
+    List<String> taskExtensions,
+    String       taskSort,
+    String       projectDir,
+    String       testCommand,
+    boolean      testEnabled,
+    boolean      stopOnFailure,
+    int          sessionTimeoutMin,
+    boolean      reuseSession,
+    String       reportDir,
+    boolean      reportEnabled,
+    boolean      logToolCalls,
+    boolean      logThoughts,
+    boolean      yolo
+) {}

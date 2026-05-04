@@ -1,0 +1,28 @@
+# aicompanion configuration
+# Copy to .aicompanion.yml and customise.
+# CLI flags and AICOMPANION_<KEY> env vars override these values.
+
+# agent: claude        # pin to one agent; default: auto-detect
+#                      # options: claude, codex, gemini, copilot, opencode
+# agent_extra_args: [] # extra CLI args appended to the agent command
+
+tasks_dir: feature/tasks     # folder containing .md / .txt task files
+task_extensions: [md, txt]   # only files with these extensions are treated as tasks
+task_sort: alphabetical       # alphabetical | none
+
+project_dir: .               # project root passed to the agent ACP session
+
+# test_command: mvn test -q  # defaults: auto-detect from pom.xml / package.json / Makefile
+test_enabled: true            # run tests after each task
+stop_on_failure: true         # stop the whole run on first test failure
+
+session_timeout_min: 10       # ACP session timeout per task (minutes)
+reuse_session: true           # keep one ACP session across all tasks
+
+report_dir: .aicompanion/logs # directory for per-task markdown summary logs
+report_enabled: true          # write a .md log after each task
+
+log_tool_calls: true          # print [read]/[write]/[perm] events to console
+log_thoughts: false           # print agent reasoning / thinking to console
+
+yolo: true                    # pass --yolo to the agent (auto-approve its tool calls)

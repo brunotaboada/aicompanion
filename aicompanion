@@ -1,0 +1,12 @@
+#!/bin/bash
+# aicompanion — AI SDLC task runner
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+JAR="$DIR/target/aicompanion-1.0.0.jar"
+
+if [ ! -f "$JAR" ]; then
+  echo "aicompanion: not built yet. Run: cd aicompanion && mvn clean package -q"
+  exit 1
+fi
+
+exec java -jar "$JAR" "$@"
