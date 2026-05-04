@@ -1,6 +1,6 @@
 # aicompanion
 
-> An AI-powered SDLC task runner that executes development tasks through locally-installed AI agents using the [Agent Control Protocol (ACP)](https://github.com/agentclientprotocol).
+> From idea to implementation in one flow — decompose your feature into tasks, delegate each one to a local AI agent, and ship.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-21-blue.svg)](https://openjdk.org/projects/jdk/21/)
@@ -8,18 +8,71 @@
 
 ---
 
-## What is aicompanion?
+## The Problem It Solves
 
-`aicompanion` reads task files from a folder, sends each one to a locally-installed AI agent one at a time, lets the agent build your project with full filesystem permissions, verifies tests pass after each task, and moves on — until all tasks are complete.
+Building software with AI is most effective when work is broken into small, focused tasks — not dumped into a single massive prompt. But orchestrating that decomposition manually is tedious: create a task, send it to the agent, verify it worked, repeat.
 
-It does **not** call any remote AI API directly. Instead it talks to agents already running on your machine (Claude Code, Codex, Gemini CLI, GitHub Copilot, OpenCode) via the open [Agent Control Protocol](https://github.com/agentclientprotocol) over stdin/stdout.
+`aicompanion` automates the **task decomposition loop** that sits at the heart of AI-assisted software development. You define the breakdown; it handles the execution end to end.
+
+---
+
+## Idea → Implementation in One Flow
+
+The entire journey — from a feature idea to working, tested code — happens in a single continuous run:
+
+```
+1. DECOMPOSE   You break your feature into ordered task files (plain Markdown)
+       │
+       ▼
+2. DELEGATE    aicompanion sends each task to a locally-installed AI agent
+               (Claude Code, Codex, Gemini CLI, Copilot, OpenCode)
+       │
+       ▼
+3. BUILD       The agent reads and writes files in your project with full permissions
+       │
+       ▼
+4. VERIFY      aicompanion runs your test suite after each task
+       │        ✓ passes → next task
+       │        ✗ fails  → stop and report
+       ▼
+5. LOG         A timestamped Markdown summary is written for every completed task
+       │
+       ▼
+6. REPEAT      Steps 2–5 repeat until all tasks are done
+```
+
+The result: your feature is implemented, task by task, with tests green at every step — without you babysitting the agent.
+
+---
+
+## Task Decomposition in Practice
+
+The key discipline `aicompanion` enforces is **explicit task decomposition before execution**. You think through your feature upfront, split it into independently-deliverable pieces, and express each one as a Markdown file:
 
 ```
 feature/tasks/
-  01-create-user-model.md     ──► agent builds it ──► tests pass ──► next
-  02-add-rest-endpoints.md    ──► agent builds it ──► tests pass ──► next
-  03-add-authentication.md    ──► agent builds it ──► tests pass ──► done
+  01-create-user-model.md       ──► agent builds it ──► tests pass ──► next
+  02-add-rest-endpoints.md      ──► agent builds it ──► tests pass ──► next
+  03-add-authentication.md      ──► agent builds it ──► tests pass ──► done
 ```
+
+Each file is a natural-language description of one slice of work:
+
+```markdown
+# feature/tasks/02-add-rest-endpoints.md
+
+Add REST endpoints for the User entity:
+- GET  /users/{id}   → return user as JSON
+- POST /users        → create user, validate email is unique
+- DELETE /users/{id} → soft-delete (set deletedAt)
+
+Use Spring MVC. Place controllers under `src/main/java/com/example/web/`.
+```
+
+This decomposition-first approach gives you:
+- **Auditability** — each task maps to a verifiable, tested change
+- **Recoverability** — a failure stops at one task, not the whole feature
+- **Reusability** — task files are plain text you can version, share, and re-run
 
 ---
 
@@ -67,7 +120,7 @@ This produces `target/aicompanion-1.0.0.jar` and a `./aicompanion` wrapper scrip
 
 ## Quick Start
 
-**1. Create your task files**
+**1. Decompose your feature into task files**
 
 ```bash
 mkdir -p feature/tasks
@@ -84,7 +137,7 @@ Create a `User` class in `src/main/java/com/example/User.java` with:
 Add a Spring Data JPA repository interface `UserRepository`.
 ```
 
-**2. Launch the interactive shell**
+**2. Launch the interactive shell and run**
 
 ```bash
 ./aicompanion
@@ -271,7 +324,7 @@ aicompanion> run
 
 ---
 
-## How It Works
+## How It Works (Internals)
 
 ```
 ./aicompanion run
