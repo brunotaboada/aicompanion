@@ -1,6 +1,6 @@
 # aicompanion
 
-> From idea to implementation in one flow — decompose your feature into tasks, delegate each one to a local AI agent, and ship.
+> From idea to implementation in one flow — decompose your feature into tasks, delegate each one to a local AI agent, and ship it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-21-blue.svg)](https://openjdk.org/projects/jdk/21/)
@@ -8,7 +8,7 @@
 
 ---
 
-## The Problem It Solves
+## The context
 
 Building software with AI is most effective when work is broken into small, focused tasks — not dumped into a single massive prompt. But orchestrating that decomposition manually is tedious: create a task, send it to the agent, verify it worked, repeat.
 
