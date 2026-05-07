@@ -122,6 +122,7 @@ public class Shell {
     private void printConfig() {
         System.out.println("Current configuration:");
         row("agent",               config.agent()       != null ? config.agent()       : "(auto-detect)");
+        row("model",               config.model()       != null ? config.model()       : "(agent default)");
         row("agent_extra_args",    config.agentExtraArgs().toString());
         row("tasks_dir",           config.tasksDir());
         row("task_extensions",     config.taskExtensions().toString());
@@ -150,7 +151,7 @@ public class Shell {
     private void printHelp() {
         System.out.println("""
             Commands:
-              run [--tasks <dir>] [--agent <id>] [--project <dir>]
+              run [--tasks <dir>] [--agent <id>] [--model <id>] [--project <dir>]
                   [--no-tests] [--no-stop-on-failure] [--log-thoughts]
                                       Execute all tasks through the agent
               tasks                   List task files in the configured directory
@@ -161,7 +162,7 @@ public class Shell {
               exit | quit             Exit
 
             Configurable keys:
-              agent, agent_extra_args, tasks_dir, task_extensions, task_sort,
+              agent, model, agent_extra_args, tasks_dir, task_extensions, task_sort,
               project_dir, test_command, test_enabled, stop_on_failure,
               max_fix_attempts, session_timeout_min, report_dir, report_enabled,
               log_tool_calls, log_thoughts, yolo

@@ -4,6 +4,7 @@ import java.util.List;
 
 public record Config(
     String       agent,
+    String       model,
     List<String> agentExtraArgs,
     String       tasksDir,
     List<String> taskExtensions,

@@ -4,6 +4,8 @@
 
 # agent: claude        # pin to one agent; default: auto-detect
 #                      # options: claude, codex, gemini, copilot, opencode
+# model: sonnet        # pin to a specific model the agent advertises; default: agent's choice
+#                      # matched flexibly: "sonnet" → "claude-sonnet-4-6", "opus" → "claude-opus-4-7", etc.
 # agent_extra_args: [] # extra CLI args appended to the agent command
 
 tasks_dir: feature/tasks     # folder containing .md / .txt task files

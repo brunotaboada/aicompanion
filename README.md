@@ -249,6 +249,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | Key | Default | Description |
 |-----|---------|-------------|
 | `agent` | auto-detect | Agent id: `claude`, `codex`, `gemini`, `copilot`, `opencode` |
+| `model` | agent default | Pin a model the agent advertises (e.g. `sonnet`, `opus`, `claude-sonnet-4-6`); matched permissively |
 | `agent_extra_args` | `[]` | Extra CLI args appended to the agent command |
 | `tasks_dir` | `feature/tasks` | Folder containing task files |
 | `task_extensions` | `[md, txt]` | File extensions treated as tasks |

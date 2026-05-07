@@ -12,9 +12,12 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.NewSessionRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PermissionCancelled;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PermissionOption;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PermissionSelected;
+import com.agentclientprotocol.sdk.spec.AcpSchema.ModelInfo;
 import com.agentclientprotocol.sdk.spec.AcpSchema.PromptRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.ReadTextFileResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.RequestPermissionResponse;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SessionModelState;
+import com.agentclientprotocol.sdk.spec.AcpSchema.SetSessionModelRequest;
 import com.agentclientprotocol.sdk.spec.AcpSchema.TextContent;
 import com.agentclientprotocol.sdk.spec.AcpSchema.ToolCall;
 import com.agentclientprotocol.sdk.spec.AcpSchema.ToolCallUpdateNotification;
@@ -74,7 +77,9 @@ public class TaskRunner {
 
             var session = client.newSession(
                 new NewSessionRequest(projDir.toString(), List.of()));
-            System.out.println("Session: " + session.sessionId() + "\n");
+            System.out.println("Session: " + session.sessionId());
+            selectModel(client, session.sessionId(), session.models());
+            System.out.println();
 
             for (int i = 0; i < total; i++) {
                 Path   taskPath = taskPaths.get(i);
@@ -227,6 +232,48 @@ public class TaskRunner {
             })
 
             .build();
+    }
+
+    /**
+     * If the user pinned a model, find a matching id among the agent's
+     * available models and switch the session to it. Matching is permissive
+     * so short names like "sonnet" resolve to "claude-sonnet-4-6".
+     */
+    private void selectModel(AcpSyncClient client, String sessionId,
+                             SessionModelState modelState) {
+        if (config.model() == null || config.model().isBlank()) return;
+        if (modelState == null || modelState.availableModels() == null
+                || modelState.availableModels().isEmpty()) {
+            System.out.println("[model] agent did not advertise any models — "
+                + "ignoring requested model: " + config.model());
+            return;
+        }
+        String want = config.model().trim();
+        ModelInfo match = findModel(modelState.availableModels(), want);
+        if (match == null) {
+            System.out.println("[model] no match for '" + want + "'. Available: "
+                + modelState.availableModels().stream()
+                    .map(ModelInfo::modelId).toList());
+            return;
+        }
+        if (match.modelId().equals(modelState.currentModelId())) {
+            System.out.println("[model] " + match.modelId() + " (already active)");
+            return;
+        }
+        client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
+        System.out.println("[model] switched to " + match.modelId());
+    }
+
+    static ModelInfo findModel(List<ModelInfo> models, String want) {
+        String w = want.toLowerCase();
+        for (ModelInfo m : models) if (m.modelId().equals(want)) return m;
+        for (ModelInfo m : models) {
+            String id = m.modelId().toLowerCase();
+            String name = m.name() == null ? "" : m.name().toLowerCase();
+            if (id.contains(w) || w.contains(id)
+                    || name.equals(w) || name.contains(w)) return m;
+        }
+        return null;
     }
 
     /** Returns sorted paths only — no file content is read here. */

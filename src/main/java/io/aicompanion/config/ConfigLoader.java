@@ -15,6 +15,7 @@ public class ConfigLoader {
     public static Config load(Map<String, String> cliOverrides, Map<String, Object> file) {
         return new Config(
             resolve("agent",               cliOverrides, file, null),
+            resolve("model",               cliOverrides, file, null),
             resolveList("agent_extra_args", cliOverrides, file, List.of()),
             resolve("tasks_dir",           cliOverrides, file, "feature/tasks"),
             resolveList("task_extensions",  cliOverrides, file, List.of("md", "txt")),
