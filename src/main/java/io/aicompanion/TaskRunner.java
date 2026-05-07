@@ -48,6 +48,12 @@ public class TaskRunner {
     /** Active "thinking" spinner; cleared as soon as the agent streams its first chunk. */
     private final AtomicReference<Spinner> activeSpinner = new AtomicReference<>();
 
+    /** Gutter prefix prepended to each line of streamed agent text. */
+    private static final String GUTTER = Ansi.dim("│ ");
+
+    /** True when the next chunk character will land at the start of a fresh line. */
+    private volatile boolean agentLineStart = true;
+
     public TaskRunner(Config config) {
         this.config = config;
     }
@@ -111,6 +117,7 @@ public class TaskRunner {
                     "(3-5 bullet points) of exactly what you changed or created. " +
                     "Do not repeat any code.";
 
+                agentLineStart = true;
                 Spinner thinking = new Spinner("agent thinking");
                 activeSpinner.set(thinking);
                 thinking.start();
@@ -120,7 +127,8 @@ public class TaskRunner {
                     List.of(new TextContent(prompt))));
 
                 stopActiveSpinner();
-                System.out.println("\n" + Ansi.dim("[stop] " + response.stopReason()));
+                closeAgentGutter();
+                System.out.println(Ansi.dim("[stop] " + response.stopReason()));
 
                 // Write the summary to the log file
                 reporter.write(taskName, summaryBuf.get().toString());
@@ -147,6 +155,7 @@ public class TaskRunner {
                             "concise summary (3-5 bullets) of what you changed.";
 
                         summaryBuf.set(new StringBuilder());
+                        agentLineStart = true;
                         Spinner fixThinking = new Spinner("agent thinking (fix attempt " + attempt + ")");
                         activeSpinner.set(fixThinking);
                         fixThinking.start();
@@ -156,7 +165,8 @@ public class TaskRunner {
                             List.of(new TextContent(fixPrompt))));
 
                         stopActiveSpinner();
-                        System.out.println("\n" + Ansi.dim("[stop] " + fixResp.stopReason()));
+                        closeAgentGutter();
+                        System.out.println(Ansi.dim("[stop] " + fixResp.stopReason()));
 
                         reporter.write(taskName + ".fix" + attempt,
                             summaryBuf.get().toString());
@@ -204,6 +214,38 @@ public class TaskRunner {
         if (s != null) s.stop();
     }
 
+    /**
+     * Print streamed agent text with a dim "│ " gutter at the start of each
+     * line, so model output is visually distinct from the runner's own
+     * messages. Falls back to a plain print when colors are disabled.
+     */
+    private void printAgentChunk(String text) {
+        if (!Ansi.enabled()) {
+            System.out.print(text);
+            agentLineStart = text.endsWith("\n");
+            return;
+        }
+        StringBuilder out = new StringBuilder(text.length() + 16);
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (agentLineStart) {
+                out.append(GUTTER);
+                agentLineStart = false;
+            }
+            out.append(c);
+            if (c == '\n') agentLineStart = true;
+        }
+        System.out.print(out);
+    }
+
+    /** Ensure the next runner-emitted line starts on a fresh row, not after a gutter. */
+    private void closeAgentGutter() {
+        if (!agentLineStart) {
+            System.out.println();
+            agentLineStart = true;
+        }
+    }
+
     private AcpSyncClient buildClient(StdioAcpClientTransport transport) {
         return AcpClient.sync(transport)
             .requestTimeout(Duration.ofMinutes(config.sessionTimeoutMin()))
@@ -214,20 +256,23 @@ public class TaskRunner {
                 if (update instanceof AgentMessageChunk msg) {
                     stopActiveSpinner();
                     String text = ((TextContent) msg.content()).text();
-                    System.out.print(text);
+                    printAgentChunk(text);
                     summaryBuf.get().append(text);
                 } else if (update instanceof AgentThoughtChunk thought
                         && config.logThoughts()) {
                     stopActiveSpinner();
-                    System.out.println("\n" + Ansi.dim("[thinking] "
+                    closeAgentGutter();
+                    System.out.println(Ansi.dim("[thinking] "
                         + ((TextContent) thought.content()).text().trim()));
                 } else if (update instanceof ToolCall tc
                         && config.logToolCalls()) {
                     stopActiveSpinner();
-                    System.out.println("\n" + Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
+                    closeAgentGutter();
+                    System.out.println(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
                 } else if (update instanceof ToolCallUpdateNotification tcu
                         && config.logToolCalls()) {
                     stopActiveSpinner();
+                    closeAgentGutter();
                     System.out.println(Ansi.dim(
                         "[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
                 }
@@ -237,6 +282,7 @@ public class TaskRunner {
             .readTextFileHandler(req -> {
                 if (config.logToolCalls()) {
                     stopActiveSpinner();
+                    closeAgentGutter();
                     System.out.println(Ansi.dim("[read ] " + req.path()));
                 }
                 try {
@@ -251,6 +297,7 @@ public class TaskRunner {
             .writeTextFileHandler(req -> {
                 if (config.logToolCalls()) {
                     stopActiveSpinner();
+                    closeAgentGutter();
                     System.out.println(Ansi.dim("[write] " + req.path()
                         + " (" + req.content().length() + " chars)"));
                 }
@@ -269,6 +316,7 @@ public class TaskRunner {
             .requestPermissionHandler(req -> {
                 String tool = req.toolCall() != null ? req.toolCall().title() : "unknown";
                 stopActiveSpinner();
+                closeAgentGutter();
                 System.out.println(Ansi.dim("[perm ] auto-approved: " + tool));
                 List<PermissionOption> opts = req.options();
                 String chosen = opts.stream()

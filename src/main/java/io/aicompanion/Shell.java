@@ -47,6 +47,14 @@ public class Shell {
             .completer(buildCompleter())
             .variable(LineReader.HISTORY_FILE,
                 System.getProperty("user.home") + "/.aicompanion_history")
+            .variable(LineReader.HISTORY_SIZE,      5000)
+            .variable(LineReader.HISTORY_FILE_SIZE, 5000)
+            // Ctrl+R reverse-search is bound by default in the emacs keymap; these
+            // options just keep the history clean across sessions.
+            .option(LineReader.Option.HISTORY_IGNORE_DUPS,  true)
+            .option(LineReader.Option.HISTORY_IGNORE_SPACE, true)
+            .option(LineReader.Option.HISTORY_REDUCE_BLANKS, true)
+            .option(LineReader.Option.HISTORY_INCREMENTAL,  true)
             .build();
 
         printBanner();
@@ -212,6 +220,7 @@ public class Shell {
 
             Tips:
               Tab           Complete commands, flags, and config keys
+              Ctrl+R        Reverse-search command history
               Ctrl+C        Abort an in-flight `run` (or dismiss prompt input)
               Ctrl+D        Quit
 
