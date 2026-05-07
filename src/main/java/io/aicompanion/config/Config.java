@@ -12,6 +12,7 @@ public record Config(
     String       testCommand,
     boolean      testEnabled,
     boolean      stopOnFailure,
+    int          maxFixAttempts,
     int          sessionTimeoutMin,
     boolean      reuseSession,
     String       reportDir,

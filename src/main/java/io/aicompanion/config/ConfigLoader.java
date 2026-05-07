@@ -8,7 +8,11 @@ import java.util.*;
 public class ConfigLoader {
 
     public static Config load(Map<String, String> cliOverrides) {
-        Map<String, Object> file = loadFile();
+        return load(cliOverrides, loadFile());
+    }
+
+    /** Visible for testing – bypasses file loading. */
+    public static Config load(Map<String, String> cliOverrides, Map<String, Object> file) {
         return new Config(
             resolve("agent",               cliOverrides, file, null),
             resolveList("agent_extra_args", cliOverrides, file, List.of()),
@@ -19,6 +23,7 @@ public class ConfigLoader {
             resolve("test_command",        cliOverrides, file, autoDetectTestCommand()),
             resolveBoolean("test_enabled",     cliOverrides, file, true),
             resolveBoolean("stop_on_failure",  cliOverrides, file, true),
+            resolveInt("max_fix_attempts",     cliOverrides, file, 3),
             resolveInt("session_timeout_min",  cliOverrides, file, 10),
             resolveBoolean("reuse_session",    cliOverrides, file, true),
             resolve("report_dir",          cliOverrides, file, ".aicompanion/logs"),

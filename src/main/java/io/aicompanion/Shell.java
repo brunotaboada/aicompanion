@@ -99,7 +99,7 @@ public class Shell {
         var found = AgentRegistry.detectAll();
         if (found.isEmpty()) {
             System.out.println("No AI agents detected on PATH.");
-            System.out.println("Install one of: claude-agent-acp, codex-acp, gemini, copilot, opencode");
+            System.out.println("Install one of: claude-code-acp, codex-acp, gemini, copilot, opencode");
         } else {
             System.out.println("Detected agents:");
             found.forEach(s -> System.out.printf("  ✓ %-14s (%s)%n", s.id(), s.executable()));
@@ -130,6 +130,7 @@ public class Shell {
         row("test_command",        config.testCommand()  != null ? config.testCommand() : "(auto-detect)");
         row("test_enabled",        String.valueOf(config.testEnabled()));
         row("stop_on_failure",     String.valueOf(config.stopOnFailure()));
+        row("max_fix_attempts",    String.valueOf(config.maxFixAttempts()));
         row("session_timeout_min", String.valueOf(config.sessionTimeoutMin()));
         row("reuse_session",       String.valueOf(config.reuseSession()));
         row("report_dir",          config.reportDir());
@@ -162,7 +163,7 @@ public class Shell {
             Configurable keys:
               agent, agent_extra_args, tasks_dir, task_extensions, task_sort,
               project_dir, test_command, test_enabled, stop_on_failure,
-              session_timeout_min, report_dir, report_enabled,
+              max_fix_attempts, session_timeout_min, report_dir, report_enabled,
               log_tool_calls, log_thoughts, yolo
 
             Environment overrides: AICOMPANION_<KEY> (e.g. AICOMPANION_AGENT=gemini)

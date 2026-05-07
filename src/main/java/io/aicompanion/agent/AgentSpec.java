@@ -16,10 +16,9 @@ public record AgentSpec(
     }
 
     public static final List<AgentSpec> ALL = List.of(
-        new AgentSpec("claude", "claude",
+        new AgentSpec("claude", "claude-code-acp",
             (yolo, extra) -> {
-                var b = AgentParameters.builder("claude");
-                if (yolo) b.arg("--dangerously-skip-permissions");
+                var b = AgentParameters.builder("claude-code-acp");
                 extra.forEach(b::arg);
                 return b.build();
             }),

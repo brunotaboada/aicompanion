@@ -95,7 +95,7 @@ This decomposition-first approach gives you:
 - **Java 21** or later
 - **Maven 3.9+** (for building from source)
 - At least one AI agent installed locally:
-  - [Claude Code](https://claude.ai/code) — `claude`
+  - [Claude Code](https://claude.ai/code) — install ACP adapter: `npm install -g @zed-industries/claude-code-acp`
   - [OpenAI Codex](https://github.com/openai/codex) — `codex-acp`
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) — `gemini`
   - [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) — `copilot`
@@ -149,7 +149,7 @@ agent: auto-detect  |  tasks: feature/tasks
 Type 'help' for available commands.
 
 aicompanion> agents
-  ✓ claude         (claude)
+  ✓ claude         (claude-code-acp)
   ✓ gemini         (gemini)
 
 aicompanion> tasks
@@ -225,7 +225,7 @@ After completing each task, the agent outputs a concise summary of exactly what 
 
 | Agent | Binary | Auto-approve flag |
 |-------|--------|-------------------|
-| Claude Code | `claude` | `--dangerously-skip-permissions` |
+| Claude Code | `claude-code-acp` | — (client-side auto-approve) |
 | OpenAI Codex | `codex-acp` | `--yolo` |
 | Gemini CLI | `gemini` | `--yolo` |
 | GitHub Copilot | `copilot` | `--yolo` |
@@ -256,7 +256,8 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `project_dir` | `.` | Project root passed to the agent ACP session |
 | `test_command` | auto-detect | Command to run your tests |
 | `test_enabled` | `true` | Run tests after each task |
-| `stop_on_failure` | `true` | Stop on first test failure |
+| `stop_on_failure` | `true` | Stop the run if tests still fail after `max_fix_attempts` |
+| `max_fix_attempts` | `3` | On test failure, feed the output back to the agent and retry up to N times (`0` disables auto-fix) |
 | `session_timeout_min` | `10` | ACP session timeout per task (minutes) |
 | `reuse_session` | `true` | Keep one ACP session across all tasks |
 | `report_dir` | `.aicompanion/logs` | Directory for per-task Markdown logs |

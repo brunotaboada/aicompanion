@@ -106,10 +106,45 @@ public class TaskRunner {
                 if (config.testEnabled()) {
                     System.out.println("\nRunning tests...");
                     TestVerifier.Result result = verifier.run();
+
+                    int attempt = 0;
+                    while (!result.passed() && attempt < config.maxFixAttempts()) {
+                        attempt++;
+                        System.out.printf("✗ Tests FAILED — fix attempt %d/%d%n",
+                            attempt, config.maxFixAttempts());
+                        System.out.println(result.output());
+
+                        String fixPrompt =
+                            "Your previous changes broke the test suite. " +
+                            "The test command `" + config.testCommand() + "` failed " +
+                            "with the output below.\n\n" +
+                            "----- TEST OUTPUT -----\n" +
+                            result.output() +
+                            "\n----- END OUTPUT -----\n\n" +
+                            "Diagnose the failure, fix it (edit existing code, do not " +
+                            "delete or weaken the failing tests), then output ONLY a " +
+                            "concise summary (3-5 bullets) of what you changed.";
+
+                        summaryBuf.set(new StringBuilder());
+                        var fixResp = client.prompt(new PromptRequest(
+                            session.sessionId(),
+                            List.of(new TextContent(fixPrompt))));
+                        System.out.println("\n[stop] " + fixResp.stopReason());
+
+                        reporter.write(taskName + ".fix" + attempt,
+                            summaryBuf.get().toString());
+
+                        System.out.println("\nRe-running tests...");
+                        result = verifier.run();
+                    }
+
                     if (result.passed()) {
-                        System.out.println("✓ Tests passed\n");
+                        System.out.println(attempt == 0
+                            ? "✓ Tests passed\n"
+                            : "✓ Tests passed after " + attempt + " fix attempt(s)\n");
                     } else {
-                        System.out.println("✗ Tests FAILED");
+                        System.out.printf("✗ Tests still FAILED after %d fix attempt(s)%n",
+                            config.maxFixAttempts());
                         System.out.println(result.output());
                         if (config.stopOnFailure()) {
                             System.out.println("Stopping — fix the failure before continuing.");

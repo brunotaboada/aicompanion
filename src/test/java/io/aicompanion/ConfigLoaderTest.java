@@ -11,7 +11,7 @@ class ConfigLoaderTest {
 
     @Test
     void defaultsAreAppliedWhenNoOverrides() {
-        Config cfg = ConfigLoader.load(Map.of());
+        Config cfg = ConfigLoader.load(Map.of(), Map.of());
         assertEquals("feature/tasks", cfg.tasksDir());
         assertEquals("alphabetical",  cfg.taskSort());
         assertEquals(".",             cfg.projectDir());
@@ -31,7 +31,7 @@ class ConfigLoaderTest {
             "tasks_dir",   "my-tasks",
             "test_enabled","false",
             "yolo",        "false"
-        ));
+        ), Map.of());
         assertEquals("gemini",    cfg.agent());
         assertEquals("my-tasks",  cfg.tasksDir());
         assertFalse(cfg.testEnabled());
@@ -40,16 +40,16 @@ class ConfigLoaderTest {
 
     @Test
     void nullAgentWhenNotConfigured() {
-        Config cfg = ConfigLoader.load(Map.of());
+        Config cfg = ConfigLoader.load(Map.of(), Map.of());
         assertNull(cfg.agent());
     }
 
     @Test
     void booleanParsing() {
-        Config yes = ConfigLoader.load(Map.of("log_thoughts", "yes"));
+        Config yes = ConfigLoader.load(Map.of("log_thoughts", "yes"), Map.of());
         assertTrue(yes.logThoughts());
 
-        Config no = ConfigLoader.load(Map.of("log_thoughts", "false"));
+        Config no = ConfigLoader.load(Map.of("log_thoughts", "false"), Map.of());
         assertFalse(no.logThoughts());
     }
 }

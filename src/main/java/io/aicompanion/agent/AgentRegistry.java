@@ -20,7 +20,7 @@ public class AgentRegistry {
             .findFirst()
             .orElseThrow(() -> new IllegalStateException(
                 "No AI agent found on PATH. Install one of: " +
-                "claude-agent-acp, codex-acp, gemini, copilot, opencode"));
+                "claude-code-acp, codex-acp, gemini, copilot, opencode"));
     }
 
     public static List<AgentSpec> detectAll() {
