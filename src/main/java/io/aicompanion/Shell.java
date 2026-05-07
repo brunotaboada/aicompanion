@@ -3,14 +3,35 @@ package io.aicompanion;
 import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.config.Config;
 import io.aicompanion.config.ConfigLoader;
+import io.aicompanion.console.Ansi;
 import org.jline.reader.*;
 import org.jline.reader.impl.DefaultParser;
+import org.jline.reader.impl.completer.AggregateCompleter;
+import org.jline.reader.impl.completer.ArgumentCompleter;
+import org.jline.reader.impl.completer.NullCompleter;
+import org.jline.reader.impl.completer.StringsCompleter;
 import org.jline.terminal.*;
+import org.jline.terminal.Terminal.Signal;
+import org.jline.terminal.Terminal.SignalHandler;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
 
 public class Shell {
+
+    private static final List<String> COMMANDS = List.of(
+        "run", "tasks", "agents", "config", "help", "?", "exit", "quit");
+
+    private static final List<String> RUN_FLAGS = List.of(
+        "--tasks", "--agent", "--model", "--project", "--test-command",
+        "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo");
+
+    private static final List<String> CONFIG_KEYS = List.of(
+        "agent", "model", "agent_extra_args", "tasks_dir", "task_extensions",
+        "task_sort", "project_dir", "test_command", "test_enabled",
+        "stop_on_failure", "max_fix_attempts", "session_timeout_min",
+        "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
+        "log_thoughts", "yolo");
 
     private Config config;
 
@@ -23,52 +44,76 @@ public class Shell {
         LineReader reader = LineReaderBuilder.builder()
             .terminal(terminal)
             .parser(new DefaultParser())
+            .completer(buildCompleter())
             .variable(LineReader.HISTORY_FILE,
                 System.getProperty("user.home") + "/.aicompanion_history")
             .build();
 
         printBanner();
+        String prompt = Ansi.bold(Ansi.cyan("aicompanion> "));
 
         while (true) {
             String line;
             try {
-                line = reader.readLine("aicompanion> ").trim();
-            } catch (EndOfFileException | UserInterruptException e) {
-                System.out.println("\nBye.");
+                line = reader.readLine(prompt).trim();
+            } catch (UserInterruptException e) {
+                // Ctrl+C at the prompt: don't exit — show a hint and re-prompt.
+                System.out.println(Ansi.dim("(Use 'exit' or Ctrl+D to quit.)"));
+                continue;
+            } catch (EndOfFileException e) {
+                System.out.println("Bye.");
                 return;
             }
             if (line.isEmpty()) continue;
 
             String[] parts = line.split("\\s+");
             switch (parts[0]) {
-                case "run"             -> handleRun(parts);
+                case "run"             -> handleRun(parts, terminal);
                 case "tasks"           -> handleTasks();
                 case "agents"          -> handleAgents();
                 case "config"          -> handleConfig(parts);
                 case "help", "?"       -> printHelp();
                 case "exit", "quit"    -> { System.out.println("Bye."); return; }
-                default -> System.out.println(
-                    "Unknown command: '" + parts[0] + "'. Type 'help'.");
+                default -> System.out.println(Ansi.yellow(
+                    "Unknown command: '" + parts[0] + "'. Type 'help'."));
             }
         }
     }
 
     // ── command handlers ─────────────────────────────────────────────────────
 
-    private void handleRun(String[] parts) {
+    private void handleRun(String[] parts, Terminal terminal) {
         Map<String, String> overrides = parseFlags(parts, 1);
         Config effective = overrides.isEmpty() ? config : ConfigLoader.load(overrides);
+
+        // Route Ctrl+C during the run to a thread interrupt so the runner can
+        // bail out at the next task boundary. Restore the previous handler on
+        // exit so the next readLine() behaves normally.
+        Thread runner = Thread.currentThread();
+        SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
         try {
             new TaskRunner(effective).run();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.out.println(Ansi.yellow("\nAborted."));
         } catch (Exception e) {
-            System.err.println("Error: " + e.getMessage());
+            if (Thread.interrupted()) {
+                System.out.println(Ansi.yellow("\nAborted."));
+            } else {
+                System.err.println(Ansi.red("Error: " + e.getMessage()));
+            }
+        } finally {
+            terminal.handle(Signal.INT, previous);
+            // Clear any lingering interrupt status so the next readLine works.
+            Thread.interrupted();
         }
     }
 
     private void handleTasks() {
         Path dir = Path.of(config.tasksDir());
         if (!Files.isDirectory(dir)) {
-            System.out.println("Tasks directory not found: " + dir.toAbsolutePath());
+            System.out.println(Ansi.yellow(
+                "Tasks directory not found: " + dir.toAbsolutePath()));
             return;
         }
         try (var stream = Files.list(dir)) {
@@ -83,26 +128,29 @@ public class Shell {
                 .toList();
 
             if (files.isEmpty()) {
-                System.out.println("No task files found in: " + dir.toAbsolutePath());
+                System.out.println(Ansi.yellow(
+                    "No task files found in: " + dir.toAbsolutePath()));
                 return;
             }
-            System.out.println("Tasks in " + config.tasksDir() + " (" + files.size() + "):");
+            System.out.println("Tasks in " + Ansi.cyan(config.tasksDir())
+                + " (" + files.size() + "):");
             for (int i = 0; i < files.size(); i++) {
                 System.out.printf("  %2d. %s%n", i + 1, files.get(i).getFileName());
             }
         } catch (IOException e) {
-            System.err.println("Error listing tasks: " + e.getMessage());
+            System.err.println(Ansi.red("Error listing tasks: " + e.getMessage()));
         }
     }
 
     private void handleAgents() {
         var found = AgentRegistry.detectAll();
         if (found.isEmpty()) {
-            System.out.println("No AI agents detected on PATH.");
+            System.out.println(Ansi.yellow("No AI agents detected on PATH."));
             System.out.println("Install one of: claude-code-acp, codex-acp, gemini, copilot, opencode");
         } else {
             System.out.println("Detected agents:");
-            found.forEach(s -> System.out.printf("  ✓ %-14s (%s)%n", s.id(), s.executable()));
+            found.forEach(s -> System.out.printf("  %s %-14s %s%n",
+                Ansi.green("✓"), s.id(), Ansi.dim("(" + s.executable() + ")")));
         }
     }
 
@@ -113,14 +161,14 @@ public class Shell {
             String key = parts[2];
             String val = String.join(" ", Arrays.copyOfRange(parts, 3, parts.length));
             config = ConfigLoader.load(Map.of(key, val));
-            System.out.println("Set " + key + " = " + val);
+            System.out.println(Ansi.green("Set ") + key + " = " + val);
         } else {
             System.out.println("Usage: config  |  config set <key> <value>");
         }
     }
 
     private void printConfig() {
-        System.out.println("Current configuration:");
+        System.out.println(Ansi.bold("Current configuration:"));
         row("agent",               config.agent()       != null ? config.agent()       : "(auto-detect)");
         row("model",               config.model()       != null ? config.model()       : "(agent default)");
         row("agent_extra_args",    config.agentExtraArgs().toString());
@@ -142,10 +190,11 @@ public class Shell {
     }
 
     private void printBanner() {
-        System.out.println("aicompanion v1.0.0");
-        System.out.println("agent: " + (config.agent() != null ? config.agent() : "auto-detect")
-            + "  |  tasks: " + config.tasksDir());
-        System.out.println("Type 'help' for available commands.\n");
+        System.out.println(Ansi.bold("aicompanion v1.0.0"));
+        System.out.println(Ansi.dim("agent: ")
+            + (config.agent() != null ? config.agent() : "auto-detect")
+            + Ansi.dim("  |  tasks: ") + config.tasksDir());
+        System.out.println(Ansi.dim("Type 'help' for available commands. Tab completes.\n"));
     }
 
     private void printHelp() {
@@ -161,6 +210,11 @@ public class Shell {
               help | ?                Show this help
               exit | quit             Exit
 
+            Tips:
+              Tab           Complete commands, flags, and config keys
+              Ctrl+C        Abort an in-flight `run` (or dismiss prompt input)
+              Ctrl+D        Quit
+
             Configurable keys:
               agent, model, agent_extra_args, tasks_dir, task_extensions, task_sort,
               project_dir, test_command, test_enabled, stop_on_failure,
@@ -175,6 +229,23 @@ public class Shell {
 
     private static void row(String key, String val) {
         System.out.printf("  %-22s = %s%n", key, val);
+    }
+
+    private Completer buildCompleter() {
+        Completer topLevel = new StringsCompleter(COMMANDS);
+
+        Completer runCompleter = new ArgumentCompleter(
+            new StringsCompleter("run"),
+            new StringsCompleter(RUN_FLAGS),
+            NullCompleter.INSTANCE);
+
+        Completer configSetCompleter = new ArgumentCompleter(
+            new StringsCompleter("config"),
+            new StringsCompleter("set"),
+            new StringsCompleter(CONFIG_KEYS),
+            NullCompleter.INSTANCE);
+
+        return new AggregateCompleter(topLevel, runCompleter, configSetCompleter);
     }
 
     /** Parse --key value pairs from a split command line starting at index `from`. */

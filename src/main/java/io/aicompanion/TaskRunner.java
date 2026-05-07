@@ -25,6 +25,8 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.WriteTextFileResponse;
 import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.agent.AgentSpec;
 import io.aicompanion.config.Config;
+import io.aicompanion.console.Ansi;
+import io.aicompanion.console.Spinner;
 import java.io.IOException;
 import java.nio.file.*;
 import java.time.Duration;
@@ -42,6 +44,9 @@ public class TaskRunner {
      */
     private final AtomicReference<StringBuilder> summaryBuf =
         new AtomicReference<>(new StringBuilder());
+
+    /** Active "thinking" spinner; cleared as soon as the agent streams its first chunk. */
+    private final AtomicReference<Spinner> activeSpinner = new AtomicReference<>();
 
     public TaskRunner(Config config) {
         this.config = config;
@@ -82,12 +87,19 @@ public class TaskRunner {
             System.out.println();
 
             for (int i = 0; i < total; i++) {
+                if (Thread.currentThread().isInterrupted()) {
+                    System.out.println(Ansi.yellow(
+                        "Aborted by user — stopped before task " + (i + 1) + "."));
+                    return;
+                }
+
                 Path   taskPath = taskPaths.get(i);
                 String taskName = taskPath.getFileName().toString();
 
-                System.out.println("─".repeat(60));
-                System.out.printf("Task %d/%d: %s%n", i + 1, total, taskName);
-                System.out.println("─".repeat(60));
+                System.out.println(Ansi.dim("─".repeat(60)));
+                System.out.printf("%s %d/%d: %s%n",
+                    Ansi.bold("Task"), i + 1, total, Ansi.cyan(taskName));
+                System.out.println(Ansi.dim("─".repeat(60)));
 
                 // Reset buffer, then read this task's file lazily
                 summaryBuf.set(new StringBuilder());
@@ -99,24 +111,28 @@ public class TaskRunner {
                     "(3-5 bullet points) of exactly what you changed or created. " +
                     "Do not repeat any code.";
 
+                Spinner thinking = new Spinner("agent thinking");
+                activeSpinner.set(thinking);
+                thinking.start();
+
                 var response = client.prompt(new PromptRequest(
                     session.sessionId(),
                     List.of(new TextContent(prompt))));
 
-                System.out.println("\n[stop] " + response.stopReason());
+                stopActiveSpinner();
+                System.out.println("\n" + Ansi.dim("[stop] " + response.stopReason()));
 
                 // Write the summary to the log file
                 reporter.write(taskName, summaryBuf.get().toString());
 
                 if (config.testEnabled()) {
-                    System.out.println("\nRunning tests...");
-                    TestVerifier.Result result = verifier.run();
+                    TestVerifier.Result result = runTestsWithSpinner(verifier, "Running tests");
 
                     int attempt = 0;
                     while (!result.passed() && attempt < config.maxFixAttempts()) {
                         attempt++;
-                        System.out.printf("✗ Tests FAILED — fix attempt %d/%d%n",
-                            attempt, config.maxFixAttempts());
+                        System.out.printf("%s Tests FAILED — fix attempt %d/%d%n",
+                            Ansi.red("✗"), attempt, config.maxFixAttempts());
                         System.out.println(result.output());
 
                         String fixPrompt =
@@ -131,37 +147,61 @@ public class TaskRunner {
                             "concise summary (3-5 bullets) of what you changed.";
 
                         summaryBuf.set(new StringBuilder());
+                        Spinner fixThinking = new Spinner("agent thinking (fix attempt " + attempt + ")");
+                        activeSpinner.set(fixThinking);
+                        fixThinking.start();
+
                         var fixResp = client.prompt(new PromptRequest(
                             session.sessionId(),
                             List.of(new TextContent(fixPrompt))));
-                        System.out.println("\n[stop] " + fixResp.stopReason());
+
+                        stopActiveSpinner();
+                        System.out.println("\n" + Ansi.dim("[stop] " + fixResp.stopReason()));
 
                         reporter.write(taskName + ".fix" + attempt,
                             summaryBuf.get().toString());
 
-                        System.out.println("\nRe-running tests...");
-                        result = verifier.run();
+                        result = runTestsWithSpinner(verifier, "Re-running tests");
                     }
 
                     if (result.passed()) {
                         System.out.println(attempt == 0
-                            ? "✓ Tests passed\n"
-                            : "✓ Tests passed after " + attempt + " fix attempt(s)\n");
+                            ? Ansi.green("✓ Tests passed") + "\n"
+                            : Ansi.green("✓ Tests passed")
+                                + " after " + attempt + " fix attempt(s)\n");
                     } else {
-                        System.out.printf("✗ Tests still FAILED after %d fix attempt(s)%n",
-                            config.maxFixAttempts());
+                        System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
+                            Ansi.red("✗"), config.maxFixAttempts());
                         System.out.println(result.output());
                         if (config.stopOnFailure()) {
-                            System.out.println("Stopping — fix the failure before continuing.");
+                            System.out.println(Ansi.yellow(
+                                "Stopping — fix the failure before continuing."));
                             return;
                         }
                     }
                 }
             }
 
-            System.out.println("─".repeat(60));
-            System.out.println("All " + total + " tasks complete.");
+            System.out.println(Ansi.dim("─".repeat(60)));
+            System.out.println(Ansi.green("All " + total + " tasks complete."));
+        } finally {
+            stopActiveSpinner();
         }
+    }
+
+    private TestVerifier.Result runTestsWithSpinner(TestVerifier verifier, String label) {
+        Spinner s = new Spinner(label);
+        s.start();
+        try {
+            return verifier.run();
+        } finally {
+            s.stop();
+        }
+    }
+
+    private void stopActiveSpinner() {
+        Spinner s = activeSpinner.getAndSet(null);
+        if (s != null) s.stop();
     }
 
     private AcpSyncClient buildClient(StdioAcpClientTransport transport) {
@@ -172,25 +212,33 @@ public class TaskRunner {
             .sessionUpdateConsumer(notification -> {
                 var update = notification.update();
                 if (update instanceof AgentMessageChunk msg) {
+                    stopActiveSpinner();
                     String text = ((TextContent) msg.content()).text();
                     System.out.print(text);
                     summaryBuf.get().append(text);
                 } else if (update instanceof AgentThoughtChunk thought
                         && config.logThoughts()) {
-                    System.out.println("\n[thinking] "
-                        + ((TextContent) thought.content()).text().trim());
+                    stopActiveSpinner();
+                    System.out.println("\n" + Ansi.dim("[thinking] "
+                        + ((TextContent) thought.content()).text().trim()));
                 } else if (update instanceof ToolCall tc
                         && config.logToolCalls()) {
-                    System.out.println("\n[tool:" + tc.kind() + "] " + tc.title());
+                    stopActiveSpinner();
+                    System.out.println("\n" + Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
                 } else if (update instanceof ToolCallUpdateNotification tcu
                         && config.logToolCalls()) {
-                    System.out.println("[tool:" + tcu.toolCallId() + "] → " + tcu.status());
+                    stopActiveSpinner();
+                    System.out.println(Ansi.dim(
+                        "[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
                 }
             })
 
             // Serve any file the agent wants to read
             .readTextFileHandler(req -> {
-                if (config.logToolCalls()) System.out.println("[read ] " + req.path());
+                if (config.logToolCalls()) {
+                    stopActiveSpinner();
+                    System.out.println(Ansi.dim("[read ] " + req.path()));
+                }
                 try {
                     return new ReadTextFileResponse(Files.readString(Path.of(req.path())));
                 } catch (IOException e) {
@@ -201,9 +249,11 @@ public class TaskRunner {
 
             // Write any file the agent produces
             .writeTextFileHandler(req -> {
-                if (config.logToolCalls())
-                    System.out.println("[write] " + req.path()
-                        + " (" + req.content().length() + " chars)");
+                if (config.logToolCalls()) {
+                    stopActiveSpinner();
+                    System.out.println(Ansi.dim("[write] " + req.path()
+                        + " (" + req.content().length() + " chars)"));
+                }
                 try {
                     Path p = Path.of(req.path());
                     if (p.getParent() != null) Files.createDirectories(p.getParent());
@@ -218,7 +268,8 @@ public class TaskRunner {
             // Auto-approve every permission request — prefer ALLOW_ALWAYS
             .requestPermissionHandler(req -> {
                 String tool = req.toolCall() != null ? req.toolCall().title() : "unknown";
-                System.out.println("[perm ] auto-approved: " + tool);
+                stopActiveSpinner();
+                System.out.println(Ansi.dim("[perm ] auto-approved: " + tool));
                 List<PermissionOption> opts = req.options();
                 String chosen = opts.stream()
                     .filter(o -> o.kind() != null
