@@ -95,7 +95,7 @@ This decomposition-first approach gives you:
 - **Java 21** or later
 - **Maven 3.9+** (for building from source)
 - At least one AI agent installed locally:
-  - [Claude Code](https://claude.ai/code) — `claude-agent-acp`
+  - [Claude Code](https://claude.ai/code) — `claude`
   - [OpenAI Codex](https://github.com/openai/codex) — `codex-acp`
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) — `gemini`
   - [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) — `copilot`
@@ -149,7 +149,7 @@ agent: auto-detect  |  tasks: feature/tasks
 Type 'help' for available commands.
 
 aicompanion> agents
-  ✓ claude         (claude-agent-acp)
+  ✓ claude         (claude)
   ✓ gemini         (gemini)
 
 aicompanion> tasks
@@ -225,7 +225,7 @@ After completing each task, the agent outputs a concise summary of exactly what 
 
 | Agent | Binary | Auto-approve flag |
 |-------|--------|-------------------|
-| Claude Code | `claude-agent-acp` | `--yolo` |
+| Claude Code | `claude` | `--dangerously-skip-permissions` |
 | OpenAI Codex | `codex-acp` | `--yolo` |
 | Gemini CLI | `gemini` | `--yolo` |
 | GitHub Copilot | `copilot` | `--yolo` |
