@@ -10,6 +10,8 @@ public class Main {
     public static void main(String[] args) throws Exception {
         Map<String, String> overrides = new HashMap<>();
         boolean nonInteractive = false;
+        boolean fresh         = false;
+        boolean retryFailed   = false;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -25,6 +27,8 @@ public class Main {
                 case "--log-thoughts"       -> overrides.put("log_thoughts",    "true");
                 case "--no-yolo"            -> overrides.put("yolo",            "false");
                 case "--no-reports"         -> overrides.put("report_enabled",  "false");
+                case "--fresh"              -> fresh        = true;
+                case "--retry-failed"       -> retryFailed  = true;
                 case "--version", "-v"      -> { System.out.println("aicompanion 1.0.0"); return; }
                 case "--help", "-h"         -> { printUsage(); return; }
                 default -> { /* ignore unknown flags */ }
@@ -34,7 +38,7 @@ public class Main {
         Config config = ConfigLoader.load(overrides);
 
         if (nonInteractive) {
-            new TaskRunner(config).run();
+            new TaskRunner(config, new RunOptions(fresh, retryFailed)).run();
         } else {
             new Shell(config).start();
         }
@@ -60,6 +64,8 @@ public class Main {
               --log-thoughts            Print agent reasoning to console
               --no-yolo                 Do not pass --yolo to the agent
               --no-reports              Do not write markdown logs
+              --fresh                   Clear .aicompanion/state.yml; run all tasks
+              --retry-failed            Resume but re-run previously failed tasks
               --version | -v            Print version
               --help | -h               Print this help
 

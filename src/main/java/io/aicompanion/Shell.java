@@ -20,11 +20,13 @@ import java.util.*;
 public class Shell {
 
     private static final List<String> COMMANDS = List.of(
-        "run", "tasks", "agents", "config", "help", "?", "exit", "quit");
+        "run", "tasks", "agents", "config", "status", "reset",
+        "help", "?", "exit", "quit");
 
     private static final List<String> RUN_FLAGS = List.of(
         "--tasks", "--agent", "--model", "--project", "--test-command",
-        "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo");
+        "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
+        "--fresh", "--retry-failed");
 
     private static final List<String> CONFIG_KEYS = List.of(
         "agent", "model", "agent_extra_args", "tasks_dir", "task_extensions",
@@ -80,6 +82,8 @@ public class Shell {
                 case "tasks"           -> handleTasks();
                 case "agents"          -> handleAgents();
                 case "config"          -> handleConfig(parts);
+                case "status"          -> handleStatus();
+                case "reset"           -> handleReset(reader);
                 case "help", "?"       -> printHelp();
                 case "exit", "quit"    -> { System.out.println("Bye."); return; }
                 default -> System.out.println(Ansi.yellow(
@@ -91,6 +95,12 @@ public class Shell {
     // ── command handlers ─────────────────────────────────────────────────────
 
     private void handleRun(String[] parts, Terminal terminal) {
+        boolean fresh       = false;
+        boolean retryFailed = false;
+        for (String p : parts) {
+            if ("--fresh".equals(p))        fresh = true;
+            if ("--retry-failed".equals(p)) retryFailed = true;
+        }
         Map<String, String> overrides = parseFlags(parts, 1);
         Config effective = overrides.isEmpty() ? config : ConfigLoader.load(overrides);
 
@@ -100,7 +110,7 @@ public class Shell {
         Thread runner = Thread.currentThread();
         SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
         try {
-            new TaskRunner(effective).run();
+            new TaskRunner(effective, new RunOptions(fresh, retryFailed)).run();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println(Ansi.yellow("\nAborted."));
@@ -147,6 +157,82 @@ public class Shell {
             }
         } catch (IOException e) {
             System.err.println(Ansi.red("Error listing tasks: " + e.getMessage()));
+        }
+    }
+
+    private void handleStatus() {
+        Path dir = Path.of(config.tasksDir());
+        if (!Files.isDirectory(dir)) {
+            System.out.println(Ansi.yellow(
+                "Tasks directory not found: " + dir.toAbsolutePath()));
+            return;
+        }
+        RunState state = RunState.load();
+        try (var stream = Files.list(dir)) {
+            List<Path> files = stream
+                .filter(p -> {
+                    String name = p.getFileName().toString();
+                    int dot = name.lastIndexOf('.');
+                    String ext = dot >= 0 ? name.substring(dot + 1) : "";
+                    return config.taskExtensions().contains(ext);
+                })
+                .sorted(Comparator.comparing(p -> p.getFileName().toString()))
+                .toList();
+
+            if (files.isEmpty()) {
+                System.out.println(Ansi.yellow(
+                    "No task files found in: " + dir.toAbsolutePath()));
+                return;
+            }
+            System.out.println("Tasks in " + Ansi.cyan(config.tasksDir())
+                + " (" + files.size() + "):");
+            for (int i = 0; i < files.size(); i++) {
+                Path   f    = files.get(i);
+                String name = f.getFileName().toString();
+                String hash;
+                try { hash = RunState.hash(Files.readString(f)); }
+                catch (IOException e) { hash = ""; }
+                String label = state.labelFor(name, hash);
+                String marker = switch (label) {
+                    case "passed" -> Ansi.green("✓");
+                    case "failed" -> Ansi.red("✗");
+                    case "edited" -> Ansi.yellow("~");
+                    default       -> " ";
+                };
+                System.out.printf("  %s %2d. %-40s %s%n",
+                    marker, i + 1, name, Ansi.dim(label));
+            }
+            System.out.println();
+            System.out.printf("  %s passed   %s failed%n",
+                Ansi.green(String.valueOf(state.passedCount())),
+                Ansi.red(String.valueOf(state.failedCount())));
+        } catch (IOException e) {
+            System.err.println(Ansi.red("Error listing tasks: " + e.getMessage()));
+        }
+    }
+
+    private void handleReset(LineReader reader) {
+        Path stateFile = RunState.DEFAULT_PATH;
+        if (!Files.exists(stateFile)) {
+            System.out.println(Ansi.dim("No state file at " + stateFile + " — nothing to reset."));
+            return;
+        }
+        String answer;
+        try {
+            answer = reader.readLine("Delete " + stateFile + "? [y/N] ").trim();
+        } catch (UserInterruptException | EndOfFileException e) {
+            System.out.println(Ansi.dim("cancelled"));
+            return;
+        }
+        if (!answer.equalsIgnoreCase("y") && !answer.equalsIgnoreCase("yes")) {
+            System.out.println(Ansi.dim("cancelled"));
+            return;
+        }
+        try {
+            RunState.delete();
+            System.out.println(Ansi.green("✓ Cleared resume state."));
+        } catch (IOException e) {
+            System.err.println(Ansi.red("Could not delete state file: " + e.getMessage()));
         }
     }
 
@@ -208,36 +294,23 @@ public class Shell {
     private void printHelp() {
         System.out.println("""
             Commands:
-              run [--tasks <dir>] [--agent <id>] [--model <id>] [--project <dir>]
-                  [--no-tests] [--no-stop-on-failure] [--log-thoughts]
-                                      Execute all tasks through the agent
-              tasks                   List task files in the configured directory
-              agents                  List installed AI agents
-              config                  Show current configuration
+              run [flags]             Execute all tasks (Tab to see flags)
+              tasks | status          List task files / show pass/fail per task
+              agents | config         Detected agents / current configuration
               config set <key> <val>  Update a setting at runtime
-              help | ?                Show this help
-              exit | quit             Exit
+              reset                   Clear resume state (.aicompanion/state.yml)
+              help | exit             This help / quit
 
-            Tips:
-              Tab           Complete commands, flags, and config keys
-              Ctrl+R        Reverse-search command history
-              Ctrl+C        Abort an in-flight `run` (or dismiss prompt input)
-              Ctrl+D        Quit
+            Keys:  Tab=complete  Ctrl+R=history  Ctrl+C=abort run  Ctrl+D=quit
 
-            Configurable keys:
-              agent, model, agent_extra_args, tasks_dir, task_extensions, task_sort,
-              project_dir, test_command, test_enabled, stop_on_failure,
-              max_fix_attempts, session_timeout_min, report_dir, report_enabled,
-              log_tool_calls, log_thoughts, yolo
+            Resume:  passed/failed tasks auto-skip on next `run`.
+                     --fresh wipes state; --retry-failed reruns only failures.
 
-            Environment overrides: AICOMPANION_<KEY> (e.g. AICOMPANION_AGENT=gemini)
-            Config file: .aicompanion.yml in working directory
+            test_command:  whitespace-split & exec'd directly. Prefix with
+                           `shell:` to run via PowerShell (Win) or /bin/sh (Unix)
+                           for pipes, &&, env expansion, etc.
 
-            test_command:
-              By default, the value is whitespace-split and exec'd directly — no shell.
-              Prefix with `shell:` to run through PowerShell (Windows) or /bin/sh (Unix),
-              enabling pipes, &&, redirects, env expansion, etc.
-              Example:  shell:mvn test -q | grep -v WARNING""");
+            Overrides:  AICOMPANION_<KEY> env  |  .aicompanion.yml  |  --flag""");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -266,7 +339,7 @@ public class Shell {
     /** Parse --key value pairs from a split command line starting at index `from`. */
     private static Map<String, String> parseFlags(String[] parts, int from) {
         Map<String, String> result = new HashMap<>();
-        for (int i = from; i < parts.length - 1; i++) {
+        for (int i = from; i < parts.length; i++) {
             String p = parts[i];
             if (p.startsWith("--")) {
                 String key = p.substring(2).replace('-', '_');
@@ -275,7 +348,14 @@ public class Shell {
                     case "no_stop_on_failure" -> result.put("stop_on_failure", "false");
                     case "log_thoughts"       -> result.put("log_thoughts",    "true");
                     case "no_yolo"            -> result.put("yolo",            "false");
-                    default -> { result.put(key, parts[i + 1]); i++; }
+                    // RunOptions live outside Config; consumed in handleRun.
+                    case "fresh", "retry_failed" -> { /* no-op */ }
+                    default -> {
+                        if (i + 1 < parts.length) {
+                            result.put(key, parts[i + 1]);
+                            i++;
+                        }
+                    }
                 }
             }
         }
