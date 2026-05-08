@@ -1,0 +1,13 @@
+# aicompanion configuration
+tasks_dir: feature/tasks
+task_extensions: [md, txt]
+task_sort: alphabetical
+model: sonnet
+project_dir: .
+test_enabled: true
+stop_on_failure: true
+report_dir: .aicompanion/logs
+report_enabled: true
+log_tool_calls: false
+log_thoughts: false
+yolo: true
