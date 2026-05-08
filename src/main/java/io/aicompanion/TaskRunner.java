@@ -352,27 +352,48 @@ public class TaskRunner {
         if (match == null) {
             System.out.println("[model] no match for '" + want + "'. Available: "
                 + modelState.availableModels().stream()
-                    .map(ModelInfo::modelId).toList());
+                    .map(TaskRunner::modelLabel).toList());
             return;
         }
         if (match.modelId().equals(modelState.currentModelId())) {
-            System.out.println("[model] " + match.modelId() + " (already active)");
+            System.out.println("[model] using " + modelLabel(match) + " (already active)");
             return;
         }
         client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
-        System.out.println("[model] switched to " + match.modelId());
+        System.out.println("[model] switched to " + modelLabel(match));
     }
 
+    /** Render "{id} ({name})" — or just the id if no human name is available. */
+    static String modelLabel(ModelInfo m) {
+        String id   = m.modelId();
+        String name = m.name();
+        if (name == null || name.isBlank() || name.equalsIgnoreCase(id)) return id;
+        return id + " (" + name + ")";
+    }
+
+    /**
+     * Resolve a user-supplied model token against the agent's advertised list.
+     * Priority: exact id → exact name → partial match (most specific id wins).
+     */
     static ModelInfo findModel(List<ModelInfo> models, String want) {
-        String w = want.toLowerCase();
-        for (ModelInfo m : models) if (m.modelId().equals(want)) return m;
+        String w = want.toLowerCase().trim();
         for (ModelInfo m : models) {
-            String id = m.modelId().toLowerCase();
-            String name = m.name() == null ? "" : m.name().toLowerCase();
-            if (id.contains(w) || w.contains(id)
-                    || name.equals(w) || name.contains(w)) return m;
+            if (m.modelId().equalsIgnoreCase(want)) return m;
         }
-        return null;
+        for (ModelInfo m : models) {
+            if (m.name() != null && m.name().equalsIgnoreCase(want)) return m;
+        }
+        ModelInfo best = null;
+        for (ModelInfo m : models) {
+            String id   = m.modelId().toLowerCase();
+            String name = m.name() == null ? "" : m.name().toLowerCase();
+            if (id.contains(w) || name.contains(w)) {
+                if (best == null || m.modelId().length() > best.modelId().length()) {
+                    best = m;
+                }
+            }
+        }
+        return best;
     }
 
     /** Returns sorted paths only — no file content is read here. */

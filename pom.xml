@@ -50,6 +50,14 @@
             <version>2.2</version>
         </dependency>
 
+        <!-- No-op SLF4J provider: silences "No SLF4J providers were found" from
+             transitive dependencies that log via SLF4J. We don't need their logs. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <version>2.0.16</version>
+        </dependency>
+
         <!-- Test dependencies -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
