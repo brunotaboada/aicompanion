@@ -27,7 +27,6 @@ import io.aicompanion.agent.AgentSpec;
 import io.aicompanion.config.Config;
 import io.aicompanion.console.Ansi;
 import io.aicompanion.console.Spinner;
-import io.aicompanion.console.StatusBar;
 import java.io.IOException;
 import java.nio.file.*;
 import java.time.Duration;
@@ -37,7 +36,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class TaskRunner {
 
     private final Config config;
-    private final StatusBar status;
 
     /**
      * Holds the in-progress task's text output.
@@ -57,12 +55,7 @@ public class TaskRunner {
     private volatile boolean agentLineStart = true;
 
     public TaskRunner(Config config) {
-        this(config, StatusBar.attach(null));
-    }
-
-    public TaskRunner(Config config, StatusBar status) {
         this.config = config;
-        this.status = status != null ? status : StatusBar.attach(null);
     }
 
     public void run() throws Exception {
@@ -84,11 +77,6 @@ public class TaskRunner {
         System.out.println("Tasks  : " + total);
         System.out.println("Dir    : " + projDir);
         System.out.println();
-
-        status.setAgent(spec.id());
-        if (config.model() != null && !config.model().isBlank()) {
-            status.setModel(config.model());
-        }
 
         var transport = new StdioAcpClientTransport(spec.params(config).get());
 
@@ -113,9 +101,6 @@ public class TaskRunner {
 
                 Path   taskPath = taskPaths.get(i);
                 String taskName = taskPath.getFileName().toString();
-
-                status.setTask(i + 1, total, taskName);
-                status.clearFix();
 
                 System.out.println(Ansi.dim("─".repeat(60)));
                 System.out.printf("%s %d/%d: %s%n",
@@ -154,8 +139,6 @@ public class TaskRunner {
                     int attempt = 0;
                     while (!result.passed() && attempt < config.maxFixAttempts()) {
                         attempt++;
-                        status.setTestsFail();
-                        status.setFix(attempt, config.maxFixAttempts());
                         System.out.printf("%s Tests FAILED — fix attempt %d/%d%n",
                             Ansi.red("✗"), attempt, config.maxFixAttempts());
                         System.out.println(result.output());
@@ -192,13 +175,11 @@ public class TaskRunner {
                     }
 
                     if (result.passed()) {
-                        status.setTestsPass();
                         System.out.println(attempt == 0
                             ? Ansi.green("✓ Tests passed") + "\n"
                             : Ansi.green("✓ Tests passed")
                                 + " after " + attempt + " fix attempt(s)\n");
                     } else {
-                        status.setTestsFail();
                         System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
                             Ansi.red("✗"), config.maxFixAttempts());
                         System.out.println(result.output());
@@ -208,8 +189,6 @@ public class TaskRunner {
                             return;
                         }
                     }
-                } else {
-                    status.setTestsSkipped();
                 }
             }
 
@@ -221,7 +200,6 @@ public class TaskRunner {
     }
 
     private TestVerifier.Result runTestsWithSpinner(TestVerifier verifier, String label) {
-        status.setTestsRunning();
         Spinner s = new Spinner(label);
         s.start();
         try {
@@ -379,12 +357,10 @@ public class TaskRunner {
         }
         if (match.modelId().equals(modelState.currentModelId())) {
             System.out.println("[model] " + match.modelId() + " (already active)");
-            status.setModel(match.modelId());
             return;
         }
         client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
         System.out.println("[model] switched to " + match.modelId());
-        status.setModel(match.modelId());
     }
 
     static ModelInfo findModel(List<ModelInfo> models, String want) {

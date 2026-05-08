@@ -4,7 +4,6 @@ import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.config.Config;
 import io.aicompanion.config.ConfigLoader;
 import io.aicompanion.console.Ansi;
-import io.aicompanion.console.StatusBar;
 import org.jline.reader.*;
 import org.jline.reader.impl.DefaultParser;
 import org.jline.reader.impl.completer.AggregateCompleter;
@@ -95,15 +94,13 @@ public class Shell {
         Map<String, String> overrides = parseFlags(parts, 1);
         Config effective = overrides.isEmpty() ? config : ConfigLoader.load(overrides);
 
-        // Pin a status bar at the bottom of the screen for the duration of
-        // the run, then route Ctrl+C to a thread interrupt so the runner can
-        // bail out at the next task boundary. Both are torn down in finally
-        // so the next readLine() behaves normally.
-        StatusBar bar = StatusBar.attach(terminal);
+        // Route Ctrl+C during the run to a thread interrupt so the runner can
+        // bail out at the next task boundary. Restore the previous handler on
+        // exit so the next readLine() behaves normally.
         Thread runner = Thread.currentThread();
         SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
         try {
-            new TaskRunner(effective, bar).run();
+            new TaskRunner(effective).run();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println(Ansi.yellow("\nAborted."));
@@ -115,7 +112,6 @@ public class Shell {
             }
         } finally {
             terminal.handle(Signal.INT, previous);
-            bar.close();
             // Clear any lingering interrupt status so the next readLine works.
             Thread.interrupted();
         }
