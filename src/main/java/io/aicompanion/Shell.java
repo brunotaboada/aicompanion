@@ -235,7 +235,13 @@ public class Shell {
               log_tool_calls, log_thoughts, yolo
 
             Environment overrides: AICOMPANION_<KEY> (e.g. AICOMPANION_AGENT=gemini)
-            Config file: .aicompanion.yml in working directory""");
+            Config file: .aicompanion.yml in working directory
+
+            test_command:
+              By default, the value is whitespace-split and exec'd directly — no shell.
+              Prefix with `shell:` to run through PowerShell (Windows) or /bin/sh (Unix),
+              enabling pipes, &&, redirects, env expansion, etc.
+              Example:  shell:mvn test -q | grep -v WARNING""");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

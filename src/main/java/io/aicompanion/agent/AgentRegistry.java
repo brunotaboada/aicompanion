@@ -1,7 +1,7 @@
 package io.aicompanion.agent;
 
 import io.aicompanion.config.Config;
-import java.io.File;
+import io.aicompanion.util.Platform;
 import java.util.List;
 
 public class AgentRegistry {
@@ -28,11 +28,6 @@ public class AgentRegistry {
     }
 
     public static boolean isInstalled(AgentSpec spec) {
-        String pathEnv = System.getenv("PATH");
-        if (pathEnv == null) return false;
-        for (String dir : pathEnv.split(File.pathSeparator)) {
-            if (new File(dir, spec.executable()).canExecute()) return true;
-        }
-        return false;
+        return Platform.findOnPath(spec.executable()) != null;
     }
 }
