@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class TaskRunner {
 
-    private final Config config;
+    private final Config     config;
+    private final RunOptions runOptions;
 
     /**
      * Holds the in-progress task's text output.
@@ -55,7 +56,12 @@ public class TaskRunner {
     private volatile boolean agentLineStart = true;
 
     public TaskRunner(Config config) {
-        this.config = config;
+        this(config, RunOptions.defaults());
+    }
+
+    public TaskRunner(Config config, RunOptions runOptions) {
+        this.config     = config;
+        this.runOptions = runOptions;
     }
 
     public void run() throws Exception {
@@ -72,6 +78,14 @@ public class TaskRunner {
             System.out.println("No task files found in: " + config.tasksDir());
             return;
         }
+
+        // Resume state: load (or wipe with --fresh) before announcing the run.
+        if (runOptions.fresh()) {
+            try { RunState.delete(); } catch (IOException ignore) {}
+        }
+        RunState state = RunState.load();
+        state.setTasksDir(config.tasksDir());
+        announceResume(state, taskPaths);
 
         System.out.println("Agent  : " + spec.id());
         System.out.println("Tasks  : " + total);
@@ -102,20 +116,37 @@ public class TaskRunner {
                 Path   taskPath = taskPaths.get(i);
                 String taskName = taskPath.getFileName().toString();
 
+                // Read content + hash once; reuse for both skip-check and prompt body.
+                String taskContent = Files.readString(taskPath);
+                String taskHash    = RunState.hash(taskContent);
+
+                if (state.shouldSkip(taskName, taskHash, runOptions.retryFailed())) {
+                    System.out.printf("%s %d/%d: %s %s%n",
+                        Ansi.bold("Task"), i + 1, total, Ansi.cyan(taskName),
+                        Ansi.green("✓ skipped (already " +
+                            state.get(taskName).status().name().toLowerCase() + ")"));
+                    continue;
+                }
+
                 System.out.println(Ansi.dim("─".repeat(60)));
                 System.out.printf("%s %d/%d: %s%n",
                     Ansi.bold("Task"), i + 1, total, Ansi.cyan(taskName));
                 System.out.println(Ansi.dim("─".repeat(60)));
 
-                // Reset buffer, then read this task's file lazily
+                // Reset buffer for this task's streamed output.
                 summaryBuf.set(new StringBuilder());
-                String taskContent = Files.readString(taskPath);
 
-                // Instruct the agent to finish with a concise summary only
+                // Instruct the agent to finish with a concise summary only.
+                // Be explicit about formatting: blank line before bullets, no
+                // heading, no inline markdown that jams onto the prior line.
                 String prompt = taskContent + "\n\n" +
-                    "When you are done, output ONLY a concise summary " +
-                    "(3-5 bullet points) of exactly what you changed or created. " +
-                    "Do not repeat any code.";
+                    "When you are done, end your response with a concise summary " +
+                    "of what you changed or created. Format requirements:\n" +
+                    "  • Precede the summary with a blank line.\n" +
+                    "  • 3–5 bullet points, each on its own line, starting with `- `.\n" +
+                    "  • Do NOT include a heading like `## Summary` or `# Summary`.\n" +
+                    "  • Do NOT repeat any code.\n" +
+                    "  • Do NOT add commentary after the bullets.";
 
                 agentLineStart = true;
                 Spinner thinking = new Spinner("agent thinking");
@@ -151,8 +182,12 @@ public class TaskRunner {
                             result.output() +
                             "\n----- END OUTPUT -----\n\n" +
                             "Diagnose the failure, fix it (edit existing code, do not " +
-                            "delete or weaken the failing tests), then output ONLY a " +
-                            "concise summary (3-5 bullets) of what you changed.";
+                            "delete or weaken the failing tests), then end your response " +
+                            "with a concise summary. Format requirements:\n" +
+                            "  • Precede the summary with a blank line.\n" +
+                            "  • 3–5 bullet points, each on its own line, starting with `- `.\n" +
+                            "  • Do NOT include a heading like `## Summary` or `# Summary`.\n" +
+                            "  • Do NOT repeat any code.";
 
                         summaryBuf.set(new StringBuilder());
                         agentLineStart = true;
@@ -179,17 +214,24 @@ public class TaskRunner {
                             ? Ansi.green("✓ Tests passed") + "\n"
                             : Ansi.green("✓ Tests passed")
                                 + " after " + attempt + " fix attempt(s)\n");
+                        state.markPassed(taskName, taskHash);
                     } else {
                         System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
                             Ansi.red("✗"), config.maxFixAttempts());
                         System.out.println(result.output());
+                        state.markFailed(taskName, taskHash);
                         if (config.stopOnFailure()) {
+                            persistState(state);
                             System.out.println(Ansi.yellow(
                                 "Stopping — fix the failure before continuing."));
                             return;
                         }
                     }
+                } else {
+                    // Tests disabled — treat completion as success for resume purposes.
+                    state.markPassed(taskName, taskHash);
                 }
+                persistState(state);
             }
 
             System.out.println(Ansi.dim("─".repeat(60)));
@@ -207,6 +249,49 @@ public class TaskRunner {
         } finally {
             s.stop();
         }
+    }
+
+    /** Save state, but never let an I/O hiccup abort the run. */
+    private void persistState(RunState state) {
+        try {
+            state.save();
+        } catch (IOException e) {
+            System.err.println(Ansi.yellow(
+                "Warning: could not persist resume state — " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Print a one-line summary of what auto-resume will skip, plus a hint about
+     * --fresh / --retry-failed. Stays silent when there is nothing to resume.
+     */
+    private void announceResume(RunState state, List<Path> taskPaths) {
+        if (state.tasks().isEmpty()) return;
+
+        int passedSkip = 0, failedSkip = 0;
+        for (Path p : taskPaths) {
+            String name = p.getFileName().toString();
+            RunState.TaskState t = state.get(name);
+            if (t == null) continue;
+            String currentHash;
+            try { currentHash = RunState.hash(Files.readString(p)); }
+            catch (IOException e) { continue; }
+            if (state.shouldSkip(name, currentHash, runOptions.retryFailed())) {
+                if (t.status() == RunState.Status.PASSED) passedSkip++;
+                else                                      failedSkip++;
+            }
+        }
+        int totalSkip = passedSkip + failedSkip;
+        if (totalSkip == 0) return;
+
+        StringBuilder msg = new StringBuilder("[resume] ");
+        msg.append(passedSkip).append(" passed");
+        if (failedSkip > 0) msg.append(", ").append(failedSkip).append(" failed");
+        msg.append(" — skipping ").append(totalSkip).append('/').append(taskPaths.size());
+        msg.append(". Use --fresh");
+        if (failedSkip > 0) msg.append(" or --retry-failed");
+        msg.append(" to re-run.");
+        System.out.println(Ansi.dim(msg.toString()));
     }
 
     private void stopActiveSpinner() {
