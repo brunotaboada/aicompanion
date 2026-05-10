@@ -287,11 +287,8 @@ public class Shell {
             Resume:  passed/failed tasks auto-skip on next `run`.
                      --fresh wipes state; --retry-failed reruns only failures.
 
-            test_command:  whitespace-split & exec'd directly. Prefix with
-                           `shell:` to run via PowerShell (Win) or /bin/sh (Unix)
-                           for pipes, &&, env expansion, etc.
-
-            Overrides:  AICOMPANION_<KEY> env  |  .aicompanion.yml  |  --flag""");
+            Overrides:  AICOMPANION_<KEY> env  |  .aicompanion.yml  |  --flag
+                        See README.md for full configuration reference.""");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

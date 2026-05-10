@@ -301,9 +301,30 @@ AICOMPANION_AGENT=gemini AICOMPANION_LOG_THOUGHTS=true ./aicompanion run
 echo "agent: gemini" >> .aicompanion.yml
 ```
 
-### Auto-detected test commands
+### Test command
 
-If `test_command` is not set, aicompanion detects it from your project:
+`test_command` is the command aicompanion runs after every task to verify the code works. A non-zero exit code counts as failure.
+
+**How to set it**
+
+In `.aicompanion.yml` (recommended):
+```yaml
+test_command: mvn test -q
+```
+
+As a CLI flag:
+```bash
+./aicompanion run --test_command "mvn test -q"
+```
+
+As an environment variable:
+```bash
+AICOMPANION_TEST_COMMAND="mvn test -q" ./aicompanion run
+```
+
+**Auto-detection**
+
+If `test_command` is not set, aicompanion detects it from your project root:
 
 | File present | Command used |
 |---|---|
@@ -311,6 +332,28 @@ If `test_command` is not set, aicompanion detects it from your project:
 | `build.gradle` | `gradle test` |
 | `package.json` | `npm test` |
 | `Makefile` | `make test` |
+
+**Shell mode**
+
+By default the command is split on whitespace and executed directly (no shell). This is the fastest and safest option for simple commands.
+
+If you need pipes, `&&`, environment variable expansion, or any other shell feature, prefix the command with `shell:`:
+
+```yaml
+# Run via /bin/sh (Unix) or PowerShell (Windows)
+test_command: "shell: npm test -- --watchAll=false && ./lint.sh"
+```
+
+```yaml
+# Expand env vars
+test_command: "shell: $JAVA_HOME/bin/java -jar test-runner.jar"
+```
+
+**On failure**
+
+When tests fail, aicompanion feeds the output back to the agent and retries up to `max_fix_attempts` times (default `3`). If tests still fail after all retries and `stop_on_failure` is `true`, the run stops. The task is recorded as `FAILED` in `.aicompanion/state.yml`.
+
+On the next `run`, failed tasks are skipped by default. Use `--retry-failed` to re-run them, or `--fresh` to wipe all state and start over.
 
 ---
 
