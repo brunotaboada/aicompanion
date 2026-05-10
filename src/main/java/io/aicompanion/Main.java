@@ -16,7 +16,6 @@ public class Main {
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "run"                  -> nonInteractive = true;
-                case "--tasks"              -> { if (i + 1 < args.length) overrides.put("tasks_dir",    args[++i]); }
                 case "--features"           -> { if (i + 1 < args.length) overrides.put("features_dir", args[++i]); }
                 case "--project"            -> { if (i + 1 < args.length) overrides.put("project_dir",  args[++i]); }
                 case "--agent"              -> { if (i + 1 < args.length) overrides.put("agent",         args[++i]); }
@@ -54,10 +53,10 @@ public class Main {
               aicompanion run [options]            Run all tasks non-interactively
 
             Options:
-              --tasks <dir>             Tasks directory (default: feature/tasks)
-              --features <dir>          Multi-feature parent dir (default: features).
-                                        Each subdir must contain a tasks/ folder; tasks
-                                        run feature-by-feature in alphabetical order.
+              --features <dir>          Features parent dir (default: features).
+                                        Each subdir must contain a tasks/ folder; the
+                                        runner iterates features alphabetically and
+                                        ships each feature's tasks in order.
               --project <dir>           Project root for agent session (default: .)
               --agent <id>              Agent: claude, codex, gemini, copilot, opencode
               --test-command <cmd>      Override test command

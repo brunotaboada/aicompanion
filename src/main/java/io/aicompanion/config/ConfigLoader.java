@@ -18,7 +18,6 @@ public class ConfigLoader {
             resolve("model",               cliOverrides, file, null),
             resolveList("agent_extra_args", cliOverrides, file, List.of()),
             resolve("features_dir",        cliOverrides, file, "features"),
-            resolve("tasks_dir",           cliOverrides, file, "feature/tasks"),
             resolveList("task_extensions",  cliOverrides, file, List.of("md", "txt")),
             resolve("task_sort",           cliOverrides, file, "alphabetical"),
             resolve("project_dir",         cliOverrides, file, "."),

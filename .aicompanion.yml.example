@@ -10,9 +10,9 @@
 
 features_dir: features        # parent dir of feature subfolders, each with a tasks/ child.
                               #   features/<feature-name>/tasks/01-task.md
-                              # When this dir exists with at least one feature/tasks/ subdir,
-                              # tasks run feature-by-feature. Otherwise tasks_dir is used.
-tasks_dir: feature/tasks     # legacy single-folder fallback when features_dir is empty/missing
+                              # The runner iterates every feature alphabetically and ships
+                              # each feature's tasks in order. Drop one feature in there to
+                              # ship a single feature; drop several to ship them all.
 task_extensions: [md, txt]   # only files with these extensions are treated as tasks
 task_sort: alphabetical       # alphabetical | none — applies to both feature dirs and tasks
 

@@ -12,7 +12,7 @@ class ConfigLoaderTest {
     @Test
     void defaultsAreAppliedWhenNoOverrides() {
         Config cfg = ConfigLoader.load(Map.of(), Map.of());
-        assertEquals("feature/tasks", cfg.tasksDir());
+        assertEquals("features",      cfg.featuresDir());
         assertEquals("alphabetical",  cfg.taskSort());
         assertEquals(".",             cfg.projectDir());
         assertTrue(cfg.testEnabled());
@@ -27,13 +27,13 @@ class ConfigLoaderTest {
     @Test
     void cliOverridesWinOverDefaults() {
         Config cfg = ConfigLoader.load(Map.of(
-            "agent",       "gemini",
-            "tasks_dir",   "my-tasks",
-            "test_enabled","false",
-            "yolo",        "false"
+            "agent",        "gemini",
+            "features_dir", "my-features",
+            "test_enabled", "false",
+            "yolo",         "false"
         ), Map.of());
-        assertEquals("gemini",    cfg.agent());
-        assertEquals("my-tasks",  cfg.tasksDir());
+        assertEquals("gemini",       cfg.agent());
+        assertEquals("my-features",  cfg.featuresDir());
         assertFalse(cfg.testEnabled());
         assertFalse(cfg.yolo());
     }

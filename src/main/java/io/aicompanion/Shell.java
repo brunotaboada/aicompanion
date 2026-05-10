@@ -24,12 +24,12 @@ public class Shell {
         "help", "?", "exit", "quit");
 
     private static final List<String> RUN_FLAGS = List.of(
-        "--tasks", "--features", "--agent", "--model", "--project", "--test-command",
+        "--features", "--agent", "--model", "--project", "--test-command",
         "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
         "--fresh", "--retry-failed");
 
     private static final List<String> CONFIG_KEYS = List.of(
-        "agent", "model", "agent_extra_args", "features_dir", "tasks_dir",
+        "agent", "model", "agent_extra_args", "features_dir",
         "task_extensions", "task_sort", "project_dir", "test_command",
         "test_enabled", "stop_on_failure", "max_fix_attempts", "session_timeout_min",
         "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
@@ -132,17 +132,15 @@ public class Shell {
             List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
             int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
             if (total == 0) {
-                System.out.println(Ansi.yellow("No task files found."));
+                System.out.println(Ansi.yellow(
+                    "No features with tasks found under: " + config.featuresDir()));
                 return;
             }
-            String source = batches.size() > 1 || !batches.get(0).featureName().isEmpty()
-                ? config.featuresDir() : config.tasksDir();
-            System.out.println("Tasks in " + Ansi.cyan(source) + " (" + total + "):");
+            System.out.println("Features in " + Ansi.cyan(config.featuresDir())
+                + " (" + batches.size() + " features, " + total + " tasks):");
             int n = 0;
             for (TaskRunner.Batch batch : batches) {
-                if (!batch.featureName().isEmpty()) {
-                    System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
-                }
+                System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
                 for (Path f : batch.taskPaths()) {
                     System.out.printf("  %2d. %s%n", ++n, f.getFileName());
                 }
@@ -157,18 +155,16 @@ public class Shell {
             List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
             int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
             if (total == 0) {
-                System.out.println(Ansi.yellow("No task files found."));
+                System.out.println(Ansi.yellow(
+                    "No features with tasks found under: " + config.featuresDir()));
                 return;
             }
             RunState state = RunState.load();
-            String source = batches.size() > 1 || !batches.get(0).featureName().isEmpty()
-                ? config.featuresDir() : config.tasksDir();
-            System.out.println("Tasks in " + Ansi.cyan(source) + " (" + total + "):");
+            System.out.println("Features in " + Ansi.cyan(config.featuresDir())
+                + " (" + batches.size() + " features, " + total + " tasks):");
             int n = 0;
             for (TaskRunner.Batch batch : batches) {
-                if (!batch.featureName().isEmpty()) {
-                    System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
-                }
+                System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
                 String prefix = batch.stateKeyPrefix();
                 for (Path f : batch.taskPaths()) {
                     String name = f.getFileName().toString();
@@ -251,8 +247,7 @@ public class Shell {
         row("agent",               config.agent()       != null ? config.agent()       : "(auto-detect)");
         row("model",               config.model()       != null ? config.model()       : "(agent default)");
         row("agent_extra_args",    config.agentExtraArgs().toString());
-        row("features_dir",        config.featuresDir() != null ? config.featuresDir() : "(disabled)");
-        row("tasks_dir",           config.tasksDir());
+        row("features_dir",        config.featuresDir());
         row("task_extensions",     config.taskExtensions().toString());
         row("task_sort",           config.taskSort());
         row("project_dir",         config.projectDir());
@@ -271,14 +266,9 @@ public class Shell {
 
     private void printBanner() {
         System.out.println(Ansi.bold("aicompanion v1.0.0"));
-        boolean fmode = false;
-        try { fmode = new TaskRunner(config).featuresMode(); } catch (Exception ignore) {}
-        String tasksLabel = fmode
-            ? "features: " + config.featuresDir()
-            : "tasks: " + config.tasksDir();
         System.out.println(Ansi.dim("agent: ")
             + (config.agent() != null ? config.agent() : "auto-detect")
-            + Ansi.dim("  |  " + tasksLabel));
+            + Ansi.dim("  |  features: ") + config.featuresDir());
         System.out.println(Ansi.dim("Type 'help' for available commands. Tab completes.\n"));
     }
 

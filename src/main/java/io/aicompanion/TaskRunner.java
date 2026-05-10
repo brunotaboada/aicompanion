@@ -65,13 +65,12 @@ public class TaskRunner {
     }
 
     /**
-     * One feature's worth of tasks. {@code featureName} is empty in legacy
-     * single-folder mode; otherwise it's the subdirectory name under
-     * {@code features_dir} and is used as the state-key prefix so resume
-     * tracks "feature-a/01-task.md" distinctly from "feature-b/01-task.md".
+     * One feature's worth of tasks. {@code featureName} is the subdirectory
+     * under {@code features_dir} and prefixes state keys so resume tracks
+     * "feature-a/01-task.md" distinctly from "feature-b/01-task.md".
      */
     record Batch(String featureName, List<Path> taskPaths) {
-        String stateKeyPrefix() { return featureName.isEmpty() ? "" : featureName + "/"; }
+        String stateKeyPrefix() { return featureName + "/"; }
     }
 
     public void run() throws Exception {
@@ -84,8 +83,7 @@ public class TaskRunner {
         int totalTasks = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
 
         if (totalTasks == 0) {
-            System.out.println("No task files found in: "
-                + (featuresMode() ? config.featuresDir() : config.tasksDir()));
+            System.out.println("No features with tasks found under: " + config.featuresDir());
             return;
         }
 
@@ -93,17 +91,13 @@ public class TaskRunner {
             try { RunState.delete(); } catch (IOException ignore) {}
         }
         RunState state = RunState.load();
-        state.setTasksDir(featuresMode() ? config.featuresDir() : config.tasksDir());
+        state.setFeaturesDir(config.featuresDir());
         announceResume(state, batches);
 
-        System.out.println("Agent  : " + spec.id());
-        if (featuresMode()) {
-            System.out.println("Features: " + batches.size()
-                + "  (" + totalTasks + " tasks)");
-        } else {
-            System.out.println("Tasks  : " + totalTasks);
-        }
-        System.out.println("Dir    : " + projDir);
+        System.out.println("Agent   : " + spec.id());
+        System.out.println("Features: " + batches.size()
+            + "  (" + totalTasks + " task" + (totalTasks == 1 ? "" : "s") + ")");
+        System.out.println("Dir     : " + projDir);
         System.out.println();
 
         var transport = new StdioAcpClientTransport(spec.params(config).get());
@@ -125,12 +119,10 @@ public class TaskRunner {
                     System.out.println(Ansi.yellow("Aborted by user."));
                     return;
                 }
-                if (!batch.featureName().isEmpty()) {
-                    System.out.println(Ansi.bold(Ansi.cyan(
-                        "═══ Feature: " + batch.featureName()
-                            + "  (" + batch.taskPaths().size() + " task"
-                            + (batch.taskPaths().size() == 1 ? "" : "s") + ") ═══")));
-                }
+                System.out.println(Ansi.bold(Ansi.cyan(
+                    "═══ Feature: " + batch.featureName()
+                        + "  (" + batch.taskPaths().size() + " task"
+                        + (batch.taskPaths().size() == 1 ? "" : "s") + ") ═══")));
                 boolean keepGoing = runTaskBatch(client, session.sessionId(), state,
                     batch, taskOffset, totalTasks, verifier, reporter);
                 taskOffset += batch.taskPaths().size();
@@ -169,7 +161,7 @@ public class TaskRunner {
             String taskName = taskPath.getFileName().toString();
             String stateKey = prefix + taskName;
             int    globalIdx = taskOffset + i + 1;
-            String displayName = prefix.isEmpty() ? taskName : prefix + taskName;
+            String displayName = prefix + taskName;
 
             String taskContent = Files.readString(taskPath);
             String taskHash    = RunState.hash(taskContent);
@@ -527,34 +519,21 @@ public class TaskRunner {
     }
 
     /**
-     * Features mode is active when {@code features_dir} points to an existing
-     * directory that contains at least one feature subdirectory with a
-     * {@code tasks/} child. Otherwise we fall back to the legacy single-folder
-     * {@code tasks_dir} layout.
-     */
-    boolean featuresMode() {
-        String fd = config.featuresDir();
-        if (fd == null || fd.isBlank()) return false;
-        Path dir = Path.of(fd);
-        if (!Files.isDirectory(dir)) return false;
-        try (var stream = Files.list(dir)) {
-            return stream.anyMatch(p -> Files.isDirectory(p) && Files.isDirectory(p.resolve("tasks")));
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    /**
-     * One batch per feature when in features mode; otherwise a single
-     * unnamed batch from {@code tasks_dir}.
+     * One batch per feature subdirectory under {@code features_dir} that has
+     * a {@code tasks/} child with at least one task file. Sorted by feature
+     * name (or insertion order when {@code task_sort=none}).
+     *
+     * Whether {@code features/} contains one feature or many, the runner
+     * iterates all of them — there is no special single-feature short-circuit.
      */
     List<Batch> resolveBatches() throws IOException {
-        if (featuresMode()) return resolveFeatureBatches();
-        return List.of(new Batch("", resolveTaskPaths()));
-    }
-
-    private List<Batch> resolveFeatureBatches() throws IOException {
         Path featuresDir = Path.of(config.featuresDir());
+        if (!Files.isDirectory(featuresDir)) {
+            throw new IllegalArgumentException(
+                "Features directory not found: " + featuresDir.toAbsolutePath()
+                + " — create it with at least one feature subfolder containing tasks/.");
+        }
+
         Comparator<Path> order = "none".equalsIgnoreCase(config.taskSort())
             ? Comparator.comparing(p -> 0)
             : Comparator.comparing(p -> p.getFileName().toString());
@@ -573,16 +552,6 @@ public class TaskRunner {
             }
         }
         return batches;
-    }
-
-    /** Returns sorted task paths from {@code config.tasksDir()}. */
-    List<Path> resolveTaskPaths() throws IOException {
-        Path dir = Path.of(config.tasksDir());
-        if (!Files.isDirectory(dir)) {
-            throw new IllegalArgumentException(
-                "Tasks directory not found: " + dir.toAbsolutePath());
-        }
-        return resolveTaskPathsIn(dir);
     }
 
     private List<Path> resolveTaskPathsIn(Path dir) throws IOException {

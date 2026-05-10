@@ -47,40 +47,30 @@ The result: your feature is implemented, task by task, with tests green at every
 
 ## Task Decomposition in Practice
 
-The key discipline `aicompanion` enforces is **explicit task decomposition before execution**. You think through your feature upfront, split it into independently-deliverable pieces, and express each one as a Markdown file.
-
-For a single feature:
-
-```
-feature/tasks/
-  01-create-user-model.md       ──► agent builds it ──► tests pass ──► next
-  02-add-rest-endpoints.md      ──► agent builds it ──► tests pass ──► next
-  03-add-authentication.md      ──► agent builds it ──► tests pass ──► done
-```
-
-For shipping several features in one run, group them under `features/` — each
-subdirectory is a feature with its own `tasks/` folder. Features run in
-alphabetical order; within a feature, tasks run in order:
+The key discipline `aicompanion` enforces is **explicit task decomposition before execution**. You think through each feature upfront, split it into independently-deliverable pieces, and express each one as a Markdown file under `features/<feature-name>/tasks/`.
 
 ```
 features/
   user-model/tasks/
-    01-create-entity.md
-    02-add-repository.md
+    01-create-entity.md           ──► agent builds it ──► tests pass ──► next
+    02-add-repository.md          ──► agent builds it ──► tests pass ──► next
   rest-api/tasks/
-    01-add-endpoints.md
+    01-add-endpoints.md           ──► agent builds it ──► tests pass ──► next
     02-add-validation.md
   auth/tasks/
     01-add-login.md
 ```
 
-Resume state is scoped per feature (`user-model/01-create-entity.md`), so you
-can edit one feature's tasks without invalidating another's progress.
+Drop one feature in `features/` to ship a single feature; drop several to ship
+them all in one run. Features execute in alphabetical order, and within each
+feature its tasks execute in alphabetical order. Resume state is scoped per
+feature (`user-model/01-create-entity.md`), so editing one feature's tasks
+doesn't invalidate another's progress.
 
-Each file is a natural-language description of one slice of work:
+Each task file is a natural-language description of one slice of work:
 
 ```markdown
-# feature/tasks/02-add-rest-endpoints.md
+# features/rest-api/tasks/01-add-endpoints.md
 
 Add REST endpoints for the User entity:
 - GET  /users/{id}   → return user as JSON
@@ -141,14 +131,14 @@ This produces `target/aicompanion-1.0.0.jar` and a `./aicompanion` wrapper scrip
 
 ## Quick Start
 
-**1. Decompose your feature into task files**
+**1. Decompose each feature into task files under `features/`**
 
 ```bash
-mkdir -p feature/tasks
+mkdir -p features/user-model/tasks
 ```
 
 ```markdown
-# feature/tasks/01-create-model.md
+# features/user-model/tasks/01-create-model.md
 
 Create a `User` class in `src/main/java/com/example/User.java` with:
 - `id` (Long, primary key)
@@ -158,6 +148,9 @@ Create a `User` class in `src/main/java/com/example/User.java` with:
 Add a Spring Data JPA repository interface `UserRepository`.
 ```
 
+Add as many features as you like — each one is a sibling folder with its own
+`tasks/`. The runner ships them in alphabetical order.
+
 **2. Launch the interactive shell and run**
 
 ```bash
@@ -166,7 +159,7 @@ Add a Spring Data JPA repository interface `UserRepository`.
 
 ```
 aicompanion v1.0.0
-agent: auto-detect  |  tasks: feature/tasks
+agent: auto-detect  |  features: features
 Type 'help' for available commands.
 
 aicompanion> agents
@@ -174,12 +167,15 @@ aicompanion> agents
   ✓ gemini         (gemini)
 
 aicompanion> tasks
-  1. 01-create-model.md
-  2. 02-add-endpoints.md
+Features in features (1 features, 2 tasks):
+  user-model:
+   1. 01-create-model.md
+   2. 02-add-endpoints.md
 
 aicompanion> run
+═══ Feature: user-model  (2 tasks) ═══
 ──────────────────────────────────────────────────────────
-Task 1/2: 01-create-model.md
+Task 1/2: user-model/01-create-model.md
 ──────────────────────────────────────────────────────────
 [write] src/main/java/com/example/User.java (842 chars)
 [write] src/main/java/com/example/UserRepository.java (312 chars)
@@ -187,10 +183,6 @@ Task 1/2: 01-create-model.md
 
 Running tests...
 ✓ Tests passed
-
-──────────────────────────────────────────────────────────
-Task 2/2: 02-add-endpoints.md
-──────────────────────────────────────────────────────────
 ...
 All 2 tasks complete.
 ```
@@ -198,17 +190,17 @@ All 2 tasks complete.
 **3. Or run non-interactively**
 
 ```bash
-./aicompanion run --tasks feature/tasks --project /path/to/project
+./aicompanion run --features features --project /path/to/project
 ```
 
 ---
 
 ## Task File Format
 
-Task files are plain Markdown (or `.txt`) placed in your tasks directory and sorted alphabetically. Prefix filenames with numbers to control execution order.
+Task files are plain Markdown (or `.txt`) placed in `features/<feature-name>/tasks/` and sorted alphabetically. Prefix filenames with numbers to control execution order.
 
 ```
-feature/tasks/
+features/storefront/tasks/
   01-setup-database.md
   02-create-models.md
   03-add-api-routes.md
@@ -218,7 +210,7 @@ feature/tasks/
 Each file is a natural-language description of what the agent should build:
 
 ```markdown
-# feature/tasks/02-create-models.md
+# features/storefront/tasks/02-create-models.md
 
 Create JPA entity classes for the following tables:
 
@@ -272,7 +264,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `agent` | auto-detect | Agent id: `claude`, `codex`, `gemini`, `copilot`, `opencode` |
 | `model` | agent default | Pin a model the agent advertises (e.g. `sonnet`, `opus`, `claude-sonnet-4-6`); matched permissively |
 | `agent_extra_args` | `[]` | Extra CLI args appended to the agent command |
-| `tasks_dir` | `feature/tasks` | Folder containing task files |
+| `features_dir` | `features` | Parent dir of feature subfolders. Each feature must contain a `tasks/` child. The runner ships every feature found here. |
 | `task_extensions` | `[md, txt]` | File extensions treated as tasks |
 | `task_sort` | `alphabetical` | Sort order: `alphabetical` or `none` |
 | `project_dir` | `.` | Project root passed to the agent ACP session |
@@ -325,10 +317,10 @@ If `test_command` is not set, aicompanion detects it from your project:
 ## Interactive Shell Commands
 
 ```
-aicompanion> run [--tasks <dir>] [--agent <id>] [--project <dir>]
+aicompanion> run [--features <dir>] [--agent <id>] [--project <dir>]
                  [--no-tests] [--no-stop-on-failure] [--log-thoughts]
 
-aicompanion> tasks                      List task files in configured directory
+aicompanion> tasks                      List features and their tasks
 aicompanion> agents                     List installed AI agents
 aicompanion> config                     Show current configuration
 aicompanion> config set <key> <value>   Update a setting at runtime

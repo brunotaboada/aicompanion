@@ -26,12 +26,12 @@ public class RunState {
 
     private final Path path;
     private final Map<String, TaskState> tasks;
-    private String tasksDir;
+    private String featuresDir;
 
-    private RunState(Path path, String tasksDir, Map<String, TaskState> tasks) {
-        this.path     = path;
-        this.tasksDir = tasksDir;
-        this.tasks    = new LinkedHashMap<>(tasks);
+    private RunState(Path path, String featuresDir, Map<String, TaskState> tasks) {
+        this.path        = path;
+        this.featuresDir = featuresDir;
+        this.tasks       = new LinkedHashMap<>(tasks);
     }
 
     /** Load state from the default path. Returns empty state if missing/corrupt. */
@@ -50,7 +50,7 @@ public class RunState {
                 return new RunState(path, null, new LinkedHashMap<>());
             }
             Map<String, Object> root = (Map<String, Object>) raw;
-            String tasksDir = root.get("tasks_dir") instanceof String s ? s : null;
+            String featuresDir = root.get("features_dir") instanceof String s ? s : null;
 
             Map<String, TaskState> parsed = new LinkedHashMap<>();
             Object tasksObj = root.get("tasks");
@@ -65,7 +65,7 @@ public class RunState {
                     parsed.put(name, new TaskState(status, hash, at));
                 }
             }
-            return new RunState(path, tasksDir, parsed);
+            return new RunState(path, featuresDir, parsed);
         } catch (IOException | RuntimeException e) {
             System.err.println("Warning: could not read state file " + path
                 + " — treating as empty. (" + e.getMessage() + ")");
@@ -79,7 +79,7 @@ public class RunState {
         catch (IllegalArgumentException e) { return null; }
     }
 
-    public void setTasksDir(String dir) { this.tasksDir = dir; }
+    public void setFeaturesDir(String dir) { this.featuresDir = dir; }
 
     public TaskState get(String name) { return tasks.get(name); }
 
@@ -133,7 +133,7 @@ public class RunState {
         if (path.getParent() != null) Files.createDirectories(path.getParent());
 
         Map<String, Object> root = new LinkedHashMap<>();
-        if (tasksDir != null) root.put("tasks_dir", tasksDir);
+        if (featuresDir != null) root.put("features_dir", featuresDir);
         root.put("updated_at", Instant.now().toString());
 
         Map<String, Object> taskMap = new LinkedHashMap<>();

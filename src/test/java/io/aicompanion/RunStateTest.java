@@ -24,7 +24,7 @@ class RunStateTest {
     @Test
     void roundTripSaveAndLoad() throws IOException {
         RunState s = RunState.load(stateFile());
-        s.setTasksDir("feature/tasks");
+        s.setFeaturesDir("features");
         s.markPassed("01-a.md", "hash-a");
         s.markFailed("02-b.md", "hash-b");
         s.save();

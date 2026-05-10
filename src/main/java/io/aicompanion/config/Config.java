@@ -7,7 +7,6 @@ public record Config(
     String       model,
     List<String> agentExtraArgs,
     String       featuresDir,
-    String       tasksDir,
     List<String> taskExtensions,
     String       taskSort,
     String       projectDir,
