@@ -92,13 +92,23 @@ public class TaskRunner {
         }
         RunState state = RunState.load();
         state.setFeaturesDir(config.featuresDir());
-        announceResume(state, batches);
+        int wouldSkip = announceResume(state, batches);
 
         System.out.println("Agent   : " + spec.id());
         System.out.println("Features: " + batches.size()
             + "  (" + totalTasks + " task" + (totalTasks == 1 ? "" : "s") + ")");
         System.out.println("Dir     : " + projDir);
         System.out.println();
+
+        // Nothing to actually run? Skip the agent spawn entirely. Spinning up
+        // ACP just to print "skipped" lines is wasteful and (when the agent
+        // can't connect) produces an alarming stack trace for a no-op run.
+        if (wouldSkip == totalTasks) {
+            System.out.println(Ansi.green("Nothing to do — every task is already passed."));
+            System.out.println(Ansi.dim("Use --fresh to wipe state and re-run, "
+                + "or --retry-failed to re-run only failures."));
+            return;
+        }
 
         var transport = new StdioAcpClientTransport(spec.params(config).get());
 
@@ -277,9 +287,13 @@ public class TaskRunner {
     /**
      * Print a one-line summary of what auto-resume will skip, plus a hint about
      * --fresh / --retry-failed. Stays silent when there is nothing to resume.
+     *
+     * @return number of tasks that would be skipped on this run; the caller
+     *         uses this to short-circuit the agent spawn when every task is
+     *         already done
      */
-    private void announceResume(RunState state, List<Batch> batches) {
-        if (state.tasks().isEmpty()) return;
+    private int announceResume(RunState state, List<Batch> batches) {
+        if (state.tasks().isEmpty()) return 0;
 
         int passedSkip = 0, failedSkip = 0, total = 0;
         for (Batch batch : batches) {
@@ -299,7 +313,7 @@ public class TaskRunner {
             }
         }
         int totalSkip = passedSkip + failedSkip;
-        if (totalSkip == 0) return;
+        if (totalSkip == 0) return 0;
 
         StringBuilder msg = new StringBuilder("[resume] ");
         msg.append(passedSkip).append(" passed");
@@ -309,6 +323,7 @@ public class TaskRunner {
         if (failedSkip > 0) msg.append(" or --retry-failed");
         msg.append(" to re-run.");
         System.out.println(Ansi.dim(msg.toString()));
+        return totalSkip;
     }
 
     private void stopActiveSpinner() {
