@@ -24,14 +24,14 @@ public class Shell {
         "help", "?", "exit", "quit");
 
     private static final List<String> RUN_FLAGS = List.of(
-        "--tasks", "--agent", "--model", "--project", "--test-command",
+        "--tasks", "--features", "--agent", "--model", "--project", "--test-command",
         "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
         "--fresh", "--retry-failed");
 
     private static final List<String> CONFIG_KEYS = List.of(
-        "agent", "model", "agent_extra_args", "tasks_dir", "task_extensions",
-        "task_sort", "project_dir", "test_command", "test_enabled",
-        "stop_on_failure", "max_fix_attempts", "session_timeout_min",
+        "agent", "model", "agent_extra_args", "features_dir", "tasks_dir",
+        "task_extensions", "task_sort", "project_dir", "test_command",
+        "test_enabled", "stop_on_failure", "max_fix_attempts", "session_timeout_min",
         "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
         "log_thoughts", "yolo");
 
@@ -128,85 +128,70 @@ public class Shell {
     }
 
     private void handleTasks() {
-        Path dir = Path.of(config.tasksDir());
-        if (!Files.isDirectory(dir)) {
-            System.out.println(Ansi.yellow(
-                "Tasks directory not found: " + dir.toAbsolutePath()));
-            return;
-        }
-        try (var stream = Files.list(dir)) {
-            List<Path> files = stream
-                .filter(p -> {
-                    String name = p.getFileName().toString();
-                    int dot = name.lastIndexOf('.');
-                    String ext = dot >= 0 ? name.substring(dot + 1) : "";
-                    return config.taskExtensions().contains(ext);
-                })
-                .sorted(Comparator.comparing(p -> p.getFileName().toString()))
-                .toList();
-
-            if (files.isEmpty()) {
-                System.out.println(Ansi.yellow(
-                    "No task files found in: " + dir.toAbsolutePath()));
+        try {
+            List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
+            int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
+            if (total == 0) {
+                System.out.println(Ansi.yellow("No task files found."));
                 return;
             }
-            System.out.println("Tasks in " + Ansi.cyan(config.tasksDir())
-                + " (" + files.size() + "):");
-            for (int i = 0; i < files.size(); i++) {
-                System.out.printf("  %2d. %s%n", i + 1, files.get(i).getFileName());
+            String source = batches.size() > 1 || !batches.get(0).featureName().isEmpty()
+                ? config.featuresDir() : config.tasksDir();
+            System.out.println("Tasks in " + Ansi.cyan(source) + " (" + total + "):");
+            int n = 0;
+            for (TaskRunner.Batch batch : batches) {
+                if (!batch.featureName().isEmpty()) {
+                    System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
+                }
+                for (Path f : batch.taskPaths()) {
+                    System.out.printf("  %2d. %s%n", ++n, f.getFileName());
+                }
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
             System.err.println(Ansi.red("Error listing tasks: " + e.getMessage()));
         }
     }
 
     private void handleStatus() {
-        Path dir = Path.of(config.tasksDir());
-        if (!Files.isDirectory(dir)) {
-            System.out.println(Ansi.yellow(
-                "Tasks directory not found: " + dir.toAbsolutePath()));
-            return;
-        }
-        RunState state = RunState.load();
-        try (var stream = Files.list(dir)) {
-            List<Path> files = stream
-                .filter(p -> {
-                    String name = p.getFileName().toString();
-                    int dot = name.lastIndexOf('.');
-                    String ext = dot >= 0 ? name.substring(dot + 1) : "";
-                    return config.taskExtensions().contains(ext);
-                })
-                .sorted(Comparator.comparing(p -> p.getFileName().toString()))
-                .toList();
-
-            if (files.isEmpty()) {
-                System.out.println(Ansi.yellow(
-                    "No task files found in: " + dir.toAbsolutePath()));
+        try {
+            List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
+            int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
+            if (total == 0) {
+                System.out.println(Ansi.yellow("No task files found."));
                 return;
             }
-            System.out.println("Tasks in " + Ansi.cyan(config.tasksDir())
-                + " (" + files.size() + "):");
-            for (int i = 0; i < files.size(); i++) {
-                Path   f    = files.get(i);
-                String name = f.getFileName().toString();
-                String hash;
-                try { hash = RunState.hash(Files.readString(f)); }
-                catch (IOException e) { hash = ""; }
-                String label = state.labelFor(name, hash);
-                String marker = switch (label) {
-                    case "passed" -> Ansi.green("✓");
-                    case "failed" -> Ansi.red("✗");
-                    case "edited" -> Ansi.yellow("~");
-                    default       -> " ";
-                };
-                System.out.printf("  %s %2d. %-40s %s%n",
-                    marker, i + 1, name, Ansi.dim(label));
+            RunState state = RunState.load();
+            String source = batches.size() > 1 || !batches.get(0).featureName().isEmpty()
+                ? config.featuresDir() : config.tasksDir();
+            System.out.println("Tasks in " + Ansi.cyan(source) + " (" + total + "):");
+            int n = 0;
+            for (TaskRunner.Batch batch : batches) {
+                if (!batch.featureName().isEmpty()) {
+                    System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
+                }
+                String prefix = batch.stateKeyPrefix();
+                for (Path f : batch.taskPaths()) {
+                    String name = f.getFileName().toString();
+                    String key  = prefix + name;
+                    String hash;
+                    try { hash = RunState.hash(Files.readString(f)); }
+                    catch (IOException e) { hash = ""; }
+                    String label = state.labelFor(key, hash);
+                    String marker = switch (label) {
+                        case "passed" -> Ansi.green("✓");
+                        case "failed" -> Ansi.red("✗");
+                        case "edited" -> Ansi.yellow("~");
+                        default       -> " ";
+                    };
+                    System.out.printf("  %s %2d. %-40s %s%n",
+                        marker, ++n, name, Ansi.dim(label));
+                }
             }
             System.out.println();
             System.out.printf("  %s passed   %s failed%n",
                 Ansi.green(String.valueOf(state.passedCount())),
                 Ansi.red(String.valueOf(state.failedCount())));
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
             System.err.println(Ansi.red("Error listing tasks: " + e.getMessage()));
         }
     }
@@ -266,6 +251,7 @@ public class Shell {
         row("agent",               config.agent()       != null ? config.agent()       : "(auto-detect)");
         row("model",               config.model()       != null ? config.model()       : "(agent default)");
         row("agent_extra_args",    config.agentExtraArgs().toString());
+        row("features_dir",        config.featuresDir() != null ? config.featuresDir() : "(disabled)");
         row("tasks_dir",           config.tasksDir());
         row("task_extensions",     config.taskExtensions().toString());
         row("task_sort",           config.taskSort());
@@ -285,9 +271,14 @@ public class Shell {
 
     private void printBanner() {
         System.out.println(Ansi.bold("aicompanion v1.0.0"));
+        boolean fmode = false;
+        try { fmode = new TaskRunner(config).featuresMode(); } catch (Exception ignore) {}
+        String tasksLabel = fmode
+            ? "features: " + config.featuresDir()
+            : "tasks: " + config.tasksDir();
         System.out.println(Ansi.dim("agent: ")
             + (config.agent() != null ? config.agent() : "auto-detect")
-            + Ansi.dim("  |  tasks: ") + config.tasksDir());
+            + Ansi.dim("  |  " + tasksLabel));
         System.out.println(Ansi.dim("Type 'help' for available commands. Tab completes.\n"));
     }
 

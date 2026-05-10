@@ -8,9 +8,13 @@
 #                      # matched flexibly: "sonnet" → "claude-sonnet-4-6", "opus" → "claude-opus-4-7", etc.
 # agent_extra_args: [] # extra CLI args appended to the agent command
 
-tasks_dir: feature/tasks     # folder containing .md / .txt task files
+features_dir: features        # parent dir of feature subfolders, each with a tasks/ child.
+                              #   features/<feature-name>/tasks/01-task.md
+                              # When this dir exists with at least one feature/tasks/ subdir,
+                              # tasks run feature-by-feature. Otherwise tasks_dir is used.
+tasks_dir: feature/tasks     # legacy single-folder fallback when features_dir is empty/missing
 task_extensions: [md, txt]   # only files with these extensions are treated as tasks
-task_sort: alphabetical       # alphabetical | none
+task_sort: alphabetical       # alphabetical | none — applies to both feature dirs and tasks
 
 project_dir: .               # project root passed to the agent ACP session
 

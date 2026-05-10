@@ -47,7 +47,9 @@ The result: your feature is implemented, task by task, with tests green at every
 
 ## Task Decomposition in Practice
 
-The key discipline `aicompanion` enforces is **explicit task decomposition before execution**. You think through your feature upfront, split it into independently-deliverable pieces, and express each one as a Markdown file:
+The key discipline `aicompanion` enforces is **explicit task decomposition before execution**. You think through your feature upfront, split it into independently-deliverable pieces, and express each one as a Markdown file.
+
+For a single feature:
 
 ```
 feature/tasks/
@@ -55,6 +57,25 @@ feature/tasks/
   02-add-rest-endpoints.md      ──► agent builds it ──► tests pass ──► next
   03-add-authentication.md      ──► agent builds it ──► tests pass ──► done
 ```
+
+For shipping several features in one run, group them under `features/` — each
+subdirectory is a feature with its own `tasks/` folder. Features run in
+alphabetical order; within a feature, tasks run in order:
+
+```
+features/
+  user-model/tasks/
+    01-create-entity.md
+    02-add-repository.md
+  rest-api/tasks/
+    01-add-endpoints.md
+    02-add-validation.md
+  auth/tasks/
+    01-add-login.md
+```
+
+Resume state is scoped per feature (`user-model/01-create-entity.md`), so you
+can edit one feature's tasks without invalidating another's progress.
 
 Each file is a natural-language description of one slice of work:
 
