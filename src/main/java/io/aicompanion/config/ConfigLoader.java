@@ -1,6 +1,7 @@
 package io.aicompanion.config;
 
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.error.YAMLException;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
@@ -72,15 +73,37 @@ public class ConfigLoader {
         return def;
     }
 
-    @SuppressWarnings("unchecked")
     private static Map<String, Object> loadFile() {
-        Path path = Path.of(".aicompanion.yml");
+        return loadFileFrom(Path.of(".aicompanion.yml"));
+    }
+
+    /**
+     * Load and validate {@code .aicompanion.yml}. Visible for testing.
+     *
+     * <p>Failure modes are surfaced as {@link IllegalArgumentException} with
+     * a message that names the file and the underlying cause — silently
+     * falling back to defaults on a typo'd config bit users in the past.
+     * A missing file is fine; an unreadable, malformed, or non-mapping file
+     * is not.
+     */
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> loadFileFrom(Path path) {
         if (!Files.exists(path)) return new HashMap<>();
         try (var reader = Files.newBufferedReader(path)) {
-            Map<String, Object> result = new Yaml().load(reader);
-            return result != null ? result : new HashMap<>();
+            Object raw = new Yaml().load(reader);
+            if (raw == null) return new HashMap<>();   // empty file
+            if (!(raw instanceof Map<?, ?> map)) {
+                throw new IllegalArgumentException(
+                    "Invalid " + path + ": expected a YAML mapping at the top level, got "
+                        + raw.getClass().getSimpleName());
+            }
+            return (Map<String, Object>) map;
         } catch (IOException e) {
-            return new HashMap<>();
+            throw new IllegalArgumentException(
+                "Could not read " + path + ": " + e.getMessage(), e);
+        } catch (YAMLException e) {
+            throw new IllegalArgumentException(
+                "Could not parse " + path + ": " + e.getMessage(), e);
         }
     }
 

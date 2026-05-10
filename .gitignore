@@ -2,6 +2,9 @@ target/
 .idea/
 out/
 
+# aicompanion runtime state and per-task summary logs
+.aicompanion/
+
 # Compiled class files
 *.class
 

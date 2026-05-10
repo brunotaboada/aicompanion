@@ -35,7 +35,14 @@ public class Main {
             }
         }
 
-        Config config = ConfigLoader.load(overrides);
+        Config config;
+        try {
+            config = ConfigLoader.load(overrides);
+        } catch (IllegalArgumentException e) {
+            System.err.println("aicompanion: " + e.getMessage());
+            System.exit(2);
+            return;
+        }
 
         if (nonInteractive) {
             new TaskRunner(config, new RunOptions(fresh, retryFailed)).run();

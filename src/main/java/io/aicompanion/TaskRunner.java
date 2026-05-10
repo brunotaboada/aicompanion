@@ -181,14 +181,7 @@ public class TaskRunner {
 
             summaryBuf.set(new StringBuilder());
 
-            String prompt = taskContent + "\n\n" +
-                "When you are done, end your response with a concise summary " +
-                "of what you changed or created. Format requirements:\n" +
-                "  • Precede the summary with a blank line.\n" +
-                "  • 3–5 bullet points, each on its own line, starting with `- `.\n" +
-                "  • Do NOT include a heading like `## Summary` or `# Summary`.\n" +
-                "  • Do NOT repeat any code.\n" +
-                "  • Do NOT add commentary after the bullets.";
+            String prompt = Prompts.forTask(taskContent);
 
             agentLineStart = true;
             Spinner thinking = new Spinner("agent thinking");
@@ -214,20 +207,7 @@ public class TaskRunner {
                         Ansi.red("✗"), attempt, config.maxFixAttempts());
                     System.out.println(result.output());
 
-                    String fixPrompt =
-                        "Your previous changes broke the test suite. " +
-                        "The test command `" + config.testCommand() + "` failed " +
-                        "with the output below.\n\n" +
-                        "----- TEST OUTPUT -----\n" +
-                        result.output() +
-                        "\n----- END OUTPUT -----\n\n" +
-                        "Diagnose the failure, fix it (edit existing code, do not " +
-                        "delete or weaken the failing tests), then end your response " +
-                        "with a concise summary. Format requirements:\n" +
-                        "  • Precede the summary with a blank line.\n" +
-                        "  • 3–5 bullet points, each on its own line, starting with `- `.\n" +
-                        "  • Do NOT include a heading like `## Summary` or `# Summary`.\n" +
-                        "  • Do NOT repeat any code.";
+                    String fixPrompt = Prompts.forFix(config.testCommand(), result.output());
 
                     summaryBuf.set(new StringBuilder());
                     agentLineStart = true;
