@@ -90,4 +90,33 @@ class ConfigLoaderTest {
         assertTrue(e.getMessage().contains("YAML mapping"),
             "error should explain the structural mismatch: " + e.getMessage());
     }
+
+    @Test
+    void tokenSavingDefaultsArePreserved() {
+        Config cfg = ConfigLoader.load(Map.of(), Map.of());
+        assertEquals(200, cfg.fixOutputMaxLines());
+        assertFalse(cfg.taskPreambleStrip());
+        assertEquals(0,   cfg.compactAfterNTasks());
+        assertFalse(cfg.preCheckTests());
+        assertEquals(0,   cfg.maxTokensPerRun());
+        assertFalse(cfg.initInstructions());
+    }
+
+    @Test
+    void tokenSavingOverridesApply() {
+        Config cfg = ConfigLoader.load(Map.of(
+            "fix_output_max_lines",   "50",
+            "task_preamble_strip",    "true",
+            "compact_after_n_tasks",  "5",
+            "pre_check_tests",        "true",
+            "max_tokens_per_run",     "100000",
+            "init_instructions",      "true"
+        ), Map.of());
+        assertEquals(50,     cfg.fixOutputMaxLines());
+        assertTrue(cfg.taskPreambleStrip());
+        assertEquals(5,      cfg.compactAfterNTasks());
+        assertTrue(cfg.preCheckTests());
+        assertEquals(100000, cfg.maxTokensPerRun());
+        assertTrue(cfg.initInstructions());
+    }
 }
