@@ -26,14 +26,18 @@ public class Shell {
     private static final List<String> RUN_FLAGS = List.of(
         "--features", "--agent", "--model", "--project", "--test-command",
         "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
-        "--fresh", "--retry-failed");
+        "--fresh", "--retry-failed",
+        "--pre-check-tests", "--task-preamble-strip", "--init-instructions",
+        "--compact-after", "--fix-output-lines", "--max-tokens", "--dry-run-tokens");
 
     private static final List<String> CONFIG_KEYS = List.of(
         "agent", "model", "agent_extra_args", "features_dir",
         "task_extensions", "task_sort", "project_dir", "test_command",
         "test_enabled", "stop_on_failure", "max_fix_attempts", "session_timeout_min",
         "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
-        "log_thoughts", "yolo");
+        "log_thoughts", "yolo",
+        "fix_output_max_lines", "task_preamble_strip", "compact_after_n_tasks",
+        "pre_check_tests", "max_tokens_per_run", "init_instructions");
 
     private Config config;
 
@@ -95,11 +99,13 @@ public class Shell {
     // ── command handlers ─────────────────────────────────────────────────────
 
     private void handleRun(String[] parts, Terminal terminal) {
-        boolean fresh       = false;
-        boolean retryFailed = false;
+        boolean fresh        = false;
+        boolean retryFailed  = false;
+        boolean dryRunTokens = false;
         for (String p : parts) {
-            if ("--fresh".equals(p))        fresh = true;
-            if ("--retry-failed".equals(p)) retryFailed = true;
+            if ("--fresh".equals(p))           fresh = true;
+            if ("--retry-failed".equals(p))    retryFailed = true;
+            if ("--dry-run-tokens".equals(p))  dryRunTokens = true;
         }
         Map<String, String> overrides = parseFlags(parts, 1);
         Config effective = overrides.isEmpty() ? config : ConfigLoader.load(overrides);
@@ -110,7 +116,7 @@ public class Shell {
         Thread runner = Thread.currentThread();
         SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
         try {
-            new TaskRunner(effective, new RunOptions(fresh, retryFailed)).run();
+            new TaskRunner(effective, new RunOptions(fresh, retryFailed, dryRunTokens)).run();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println(Ansi.yellow("\nAborted."));
@@ -262,6 +268,12 @@ public class Shell {
         row("log_tool_calls",      String.valueOf(config.logToolCalls()));
         row("log_thoughts",        String.valueOf(config.logThoughts()));
         row("yolo",                String.valueOf(config.yolo()));
+        row("fix_output_max_lines",   String.valueOf(config.fixOutputMaxLines()));
+        row("task_preamble_strip",    String.valueOf(config.taskPreambleStrip()));
+        row("compact_after_n_tasks",  String.valueOf(config.compactAfterNTasks()));
+        row("pre_check_tests",        String.valueOf(config.preCheckTests()));
+        row("max_tokens_per_run",     String.valueOf(config.maxTokensPerRun()));
+        row("init_instructions",      String.valueOf(config.initInstructions()));
     }
 
     private void printBanner() {
@@ -322,12 +334,24 @@ public class Shell {
             if (p.startsWith("--")) {
                 String key = p.substring(2).replace('-', '_');
                 switch (key) {
-                    case "no_tests"           -> result.put("test_enabled",    "false");
-                    case "no_stop_on_failure" -> result.put("stop_on_failure", "false");
-                    case "log_thoughts"       -> result.put("log_thoughts",    "true");
-                    case "no_yolo"            -> result.put("yolo",            "false");
+                    case "no_tests"             -> result.put("test_enabled",        "false");
+                    case "no_stop_on_failure"   -> result.put("stop_on_failure",     "false");
+                    case "log_thoughts"         -> result.put("log_thoughts",        "true");
+                    case "no_yolo"              -> result.put("yolo",                "false");
+                    case "pre_check_tests"      -> result.put("pre_check_tests",     "true");
+                    case "init_instructions"    -> result.put("init_instructions",   "true");
+                    case "task_preamble_strip"  -> result.put("task_preamble_strip", "true");
+                    case "compact_after"        -> {
+                        if (i + 1 < parts.length) { result.put("compact_after_n_tasks", parts[++i]); }
+                    }
+                    case "fix_output_lines"     -> {
+                        if (i + 1 < parts.length) { result.put("fix_output_max_lines", parts[++i]); }
+                    }
+                    case "max_tokens"           -> {
+                        if (i + 1 < parts.length) { result.put("max_tokens_per_run", parts[++i]); }
+                    }
                     // RunOptions live outside Config; consumed in handleRun.
-                    case "fresh", "retry_failed" -> { /* no-op */ }
+                    case "fresh", "retry_failed", "dry_run_tokens" -> { /* no-op */ }
                     default -> {
                         if (i + 1 < parts.length) {
                             result.put(key, parts[i + 1]);

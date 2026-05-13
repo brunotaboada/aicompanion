@@ -1,46 +1,143 @@
 package io.aicompanion;
 
 /**
- * Prompt templates sent to the agent. Centralised here so the "summary
- * format" rules stay identical across the initial and fix-loop prompts and
- * can be tuned in one place.
+ * Prompt templates sent to the agent. Centralised so the "summary format"
+ * rules stay consistent across initial, fix-loop, init, and compact prompts
+ * — and so token-saving tweaks land in one place.
  */
 final class Prompts {
 
     private Prompts() {}
 
     /**
-     * Bullet rules appended to every prompt so the agent's trailing summary
-     * lands in a predictable shape for the per-task log.
+     * Compact one-liner appended to every prompt that needs to repeat the
+     * rules in full. ~25 tokens instead of the multi-line block we used to
+     * ship on every request.
      */
-    private static final String SUMMARY_FORMAT = """
-        Format requirements:
-          • Precede the summary with a blank line.
-          • 3–5 bullet points, each on its own line, starting with `- `.
-          • Do NOT include a heading like `## Summary` or `# Summary`.
-          • Do NOT repeat any code.
-          • Do NOT add commentary after the bullets.""";
+    private static final String SUMMARY_FORMAT_COMPACT =
+        "End with 3-5 `- ` bullets (blank line above, no heading, no code, no commentary).";
 
-    /** Prompt for the first attempt at a task: the task body + summary rules. */
+    /**
+     * Even shorter back-reference used when {@code init_instructions} is on
+     * and the agent has already received the format rules once per session.
+     */
+    private static final String SUMMARY_FORMAT_REF =
+        "End with a summary in the format established earlier.";
+
+    /**
+     * Sent once per session when {@code init_instructions=true}. The agent
+     * keeps this in context so per-task prompts can reference it instead of
+     * re-shipping the rules each time.
+     */
+    static String forSessionInit() {
+        return "Session rules: every response you produce in this session must "
+            + "end with a concise change summary. Format: blank line, then 3-5 "
+            + "bullet points each on its own line starting with `- `. No heading "
+            + "(no `## Summary`), no code, no commentary after the bullets. "
+            + "Acknowledge with `ok`.";
+    }
+
+    /** First-attempt prompt with the format rules inline. */
     static String forTask(String taskBody) {
         return taskBody + "\n\n"
-            + "When you are done, end your response with a concise summary "
-            + "of what you changed or created. " + SUMMARY_FORMAT;
+            + "When done, summarise your changes. " + SUMMARY_FORMAT_COMPACT;
+    }
+
+    /** First-attempt prompt that relies on a prior session-init message. */
+    static String forTaskShort(String taskBody) {
+        return taskBody + "\n\n" + SUMMARY_FORMAT_REF;
     }
 
     /**
-     * Prompt for the fix loop after tests fail: includes the failing test
-     * command, the captured output, and the same summary rules.
+     * Fix-loop prompt with truncated test output. {@code maxLines <= 0}
+     * disables truncation (preserves old behaviour for callers that want the
+     * full dump).
      */
-    static String forFix(String testCommand, String testOutput) {
-        return "Your previous changes broke the test suite. "
-            + "The test command `" + testCommand + "` failed "
-            + "with the output below.\n\n"
+    static String forFix(String testCommand, String testOutput, int maxLines) {
+        return "Previous changes broke the tests. `" + testCommand + "` failed:\n\n"
             + "----- TEST OUTPUT -----\n"
-            + testOutput
+            + truncateOutput(testOutput, maxLines)
             + "\n----- END OUTPUT -----\n\n"
-            + "Diagnose the failure, fix it (edit existing code, do not "
-            + "delete or weaken the failing tests), then end your response "
-            + "with a concise summary. " + SUMMARY_FORMAT;
+            + "Diagnose and fix without weakening the tests. "
+            + SUMMARY_FORMAT_COMPACT;
+    }
+
+    /** Fix-loop prompt that relies on a prior session-init message. */
+    static String forFixShort(String testCommand, String testOutput, int maxLines) {
+        return "`" + testCommand + "` failed:\n\n"
+            + "----- TEST OUTPUT -----\n"
+            + truncateOutput(testOutput, maxLines)
+            + "\n----- END OUTPUT -----\n\n"
+            + "Diagnose and fix without weakening the tests. "
+            + SUMMARY_FORMAT_REF;
+    }
+
+    /**
+     * Sent at the start of a fresh session when {@code compact_after_n_tasks}
+     * triggers — a short handoff so the new session knows what is already done
+     * without inheriting the full conversation.
+     */
+    static String forCompactHandoff(java.util.List<String> completedTaskNames) {
+        if (completedTaskNames == null || completedTaskNames.isEmpty()) {
+            return "Starting a fresh session. Continue from the next task.";
+        }
+        StringBuilder sb = new StringBuilder(
+            "Context handoff from prior session. Already completed: ");
+        for (int i = 0; i < completedTaskNames.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(completedTaskNames.get(i));
+        }
+        sb.append(". Acknowledge with `ok` and wait for the next task.");
+        return sb.toString();
+    }
+
+    /**
+     * Keep at most {@code maxLines} lines of test output: head + tail with an
+     * elision marker. Returns the input unchanged when truncation is disabled
+     * or the output is already short enough.
+     */
+    static String truncateOutput(String output, int maxLines) {
+        if (output == null || output.isEmpty()) return "";
+        if (maxLines <= 0) return output;
+        String[] lines = output.split("\n", -1);
+        if (lines.length <= maxLines) return output;
+        int head = Math.max(1, maxLines / 3);
+        int tail = maxLines - head;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < head; i++) sb.append(lines[i]).append('\n');
+        sb.append("... [").append(lines.length - head - tail)
+          .append(" line(s) elided] ...\n");
+        for (int i = lines.length - tail; i < lines.length; i++) {
+            sb.append(lines[i]);
+            if (i < lines.length - 1) sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Strip everything before the first Markdown heading ({@code #}, {@code ##}, etc.)
+     * — feature-spec preambles often repeat 100+ lines of context that is
+     * already implied by the per-task heading. Returns the input unchanged
+     * when no heading is found (so plain-text task files are safe).
+     */
+    static String stripPreamble(String taskBody) {
+        if (taskBody == null || taskBody.isEmpty()) return taskBody;
+        String[] lines = taskBody.split("\n", -1);
+        int firstHeading = -1;
+        for (int i = 0; i < lines.length; i++) {
+            String trimmed = lines[i].stripLeading();
+            if (trimmed.startsWith("#") && (trimmed.length() == 1
+                    || trimmed.charAt(1) == '#' || trimmed.charAt(1) == ' ')) {
+                firstHeading = i;
+                break;
+            }
+        }
+        if (firstHeading <= 0) return taskBody;
+        StringBuilder sb = new StringBuilder();
+        for (int i = firstHeading; i < lines.length; i++) {
+            sb.append(lines[i]);
+            if (i < lines.length - 1) sb.append('\n');
+        }
+        return sb.toString();
     }
 }

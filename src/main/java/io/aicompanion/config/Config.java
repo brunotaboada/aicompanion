@@ -20,5 +20,11 @@ public record Config(
     boolean      reportEnabled,
     boolean      logToolCalls,
     boolean      logThoughts,
-    boolean      yolo
+    boolean      yolo,
+    int          fixOutputMaxLines,
+    boolean      taskPreambleStrip,
+    int          compactAfterNTasks,
+    boolean      preCheckTests,
+    int          maxTokensPerRun,
+    boolean      initInstructions
 ) {}

@@ -12,6 +12,7 @@ public class Main {
         boolean nonInteractive = false;
         boolean fresh         = false;
         boolean retryFailed   = false;
+        boolean dryRunTokens  = false;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -22,13 +23,20 @@ public class Main {
                 case "--test-command"       -> { if (i + 1 < args.length) overrides.put("test_command",  args[++i]); }
                 case "--timeout"            -> { if (i + 1 < args.length) overrides.put("session_timeout_min", args[++i]); }
                 case "--report-dir"         -> { if (i + 1 < args.length) overrides.put("report_dir",   args[++i]); }
+                case "--max-tokens"         -> { if (i + 1 < args.length) overrides.put("max_tokens_per_run", args[++i]); }
+                case "--compact-after"      -> { if (i + 1 < args.length) overrides.put("compact_after_n_tasks", args[++i]); }
+                case "--fix-output-lines"   -> { if (i + 1 < args.length) overrides.put("fix_output_max_lines", args[++i]); }
                 case "--no-tests"           -> overrides.put("test_enabled",    "false");
                 case "--no-stop-on-failure" -> overrides.put("stop_on_failure", "false");
                 case "--log-thoughts"       -> overrides.put("log_thoughts",    "true");
                 case "--no-yolo"            -> overrides.put("yolo",            "false");
                 case "--no-reports"         -> overrides.put("report_enabled",  "false");
+                case "--pre-check-tests"    -> overrides.put("pre_check_tests", "true");
+                case "--init-instructions"  -> overrides.put("init_instructions", "true");
+                case "--task-preamble-strip" -> overrides.put("task_preamble_strip", "true");
                 case "--fresh"              -> fresh        = true;
                 case "--retry-failed"       -> retryFailed  = true;
+                case "--dry-run-tokens"     -> { dryRunTokens = true; nonInteractive = true; }
                 case "--version", "-v"      -> { System.out.println("aicompanion 1.0.0"); return; }
                 case "--help", "-h"         -> { printUsage(); return; }
                 default -> { /* ignore unknown flags */ }
@@ -45,7 +53,7 @@ public class Main {
         }
 
         if (nonInteractive) {
-            new TaskRunner(config, new RunOptions(fresh, retryFailed)).run();
+            new TaskRunner(config, new RunOptions(fresh, retryFailed, dryRunTokens)).run();
         } else {
             new Shell(config).start();
         }
@@ -76,6 +84,16 @@ public class Main {
               --no-reports              Do not write markdown logs
               --fresh                   Clear .aicompanion/state.yml; run all tasks
               --retry-failed            Resume but re-run previously failed tasks
+
+            Token-saving:
+              --pre-check-tests         Run tests before each task; skip agent if green
+              --task-preamble-strip     Drop content before the first Markdown heading
+              --init-instructions       Send summary-format rules once per session
+              --compact-after <N>       Recycle ACP session every N tasks
+              --fix-output-lines <N>    Cap retry test output (default: 200; 0 = unbounded)
+              --max-tokens <N>          Stop the run once estimated tokens cross N
+              --dry-run-tokens          Estimate prompt tokens without invoking the agent
+
               --version | -v            Print version
               --help | -h               Print this help
 

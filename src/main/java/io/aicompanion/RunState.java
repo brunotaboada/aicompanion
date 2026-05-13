@@ -67,8 +67,6 @@ public class RunState {
             }
             return new RunState(path, featuresDir, parsed);
         } catch (IOException | RuntimeException e) {
-            System.err.println("Warning: could not read state file " + path
-                + " — treating as empty. (" + e.getMessage() + ")");
             return new RunState(path, null, new LinkedHashMap<>());
         }
     }

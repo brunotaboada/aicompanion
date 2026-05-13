@@ -33,3 +33,11 @@ log_tool_calls: true          # print [read]/[write]/[perm] events to console
 log_thoughts: false           # print agent reasoning / thinking to console
 
 yolo: true                    # pass --yolo to the agent (auto-approve its tool calls)
+
+# ── Token-saving options ────────────────────────────────────────────────────
+fix_output_max_lines: 200     # cap test output sent on fix retries (0 = unbounded)
+task_preamble_strip: false    # drop content before the first Markdown heading in each task file
+init_instructions: false      # send the summary-format rules once per session instead of per task
+compact_after_n_tasks: 0      # recycle the ACP session every N tasks (0 = never; sends a short handoff)
+pre_check_tests: false        # run tests before the agent — skip the LLM call when they already pass
+max_tokens_per_run: 0         # estimated-token budget per run; 0 = unlimited (run --dry-run-tokens to size)
