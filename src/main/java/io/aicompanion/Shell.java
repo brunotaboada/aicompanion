@@ -116,7 +116,7 @@ public class Shell {
         Thread runner = Thread.currentThread();
         SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
         try {
-            new TaskRunner(effective, new RunOptions(fresh, retryFailed, dryRunTokens)).run();
+            new TaskRunner(effective, new RunOptions(fresh, retryFailed, dryRunTokens), terminal).run();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println(Ansi.yellow("\nAborted."));

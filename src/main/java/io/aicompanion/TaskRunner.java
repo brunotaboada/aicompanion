@@ -34,6 +34,8 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import org.jline.terminal.Attributes;
+import org.jline.terminal.Terminal;
 
 public class TaskRunner {
 
@@ -54,8 +56,30 @@ public class TaskRunner {
     /** Gutter prefix prepended to each line of streamed agent text. */
     private static final String GUTTER = Ansi.dim("│ ");
 
-    /** True when the next chunk character will land at the start of a fresh line. */
+    /** True when the next chunk character will land at the start of a fresh line (streaming mode). */
     private volatile boolean agentLineStart = true;
+
+    /** Same tracking for the live buffer (hidden mode). */
+    private volatile boolean hiddenLineStart = true;
+
+    /** JLine terminal used for the real-time toggle. Null in CLI mode. */
+    private final Terminal terminal;
+
+    // ── real-time output toggle ───────────────────────────────────────────────
+
+    private enum OutputMode { VISIBLE, HIDDEN }
+
+    /** Current per-task output mode; null outside of a toggle-enabled task. */
+    private volatile OutputMode outputMode;
+
+    /** Guards all output operations so the toggle thread and consumer don't race. */
+    private final Object outputLock = new Object();
+
+    /** Accumulates rendered output while in HIDDEN mode; flushed on toggle to VISIBLE. */
+    private final StringBuilder liveBuffer = new StringBuilder();
+
+    /** Background thread that reads keypresses to toggle output visibility. */
+    private volatile Thread toggleThread;
 
     /** Current ACP session — mutates when {@code compact_after_n_tasks} triggers a refresh. */
     private String currentSessionId;
@@ -71,12 +95,17 @@ public class TaskRunner {
     private long outputTokens = 0;
 
     public TaskRunner(Config config) {
-        this(config, RunOptions.defaults());
+        this(config, RunOptions.defaults(), null);
     }
 
     public TaskRunner(Config config, RunOptions runOptions) {
+        this(config, runOptions, null);
+    }
+
+    public TaskRunner(Config config, RunOptions runOptions, Terminal terminal) {
         this.config     = config;
         this.runOptions = runOptions;
+        this.terminal   = terminal;
     }
 
     /**
@@ -143,8 +172,7 @@ public class TaskRunner {
             client.initialize(new InitializeRequest(1,
                 new ClientCapabilities(new FileSystemCapability(true, true), false)));
 
-            var session = client.newSession(
-                new NewSessionRequest(projDir.toString(), List.of()));
+            var session = client.newSession(new NewSessionRequest(projDir.toString(), List.of()));
             currentSessionId      = session.sessionId();
             tasksInCurrentSession = 0;
             recentTaskNames.clear();
@@ -165,8 +193,16 @@ public class TaskRunner {
                     "═══ Feature: " + batch.featureName()
                         + "  (" + batch.taskPaths().size() + " task"
                         + (batch.taskPaths().size() == 1 ? "" : "s") + ") ═══")));
-                boolean keepGoing = runTaskBatch(client, projDir, state,
-                    batch, taskOffset, totalTasks, verifier, reporter);
+                boolean keepGoing = runTaskBatch(
+                    client,
+                    projDir,
+                    state,
+                    batch,
+                    taskOffset,
+                    totalTasks,
+                    verifier,
+                    reporter
+                );
                 taskOffset += batch.taskPaths().size();
                 if (!keepGoing) return;
             }
@@ -247,6 +283,7 @@ public class TaskRunner {
             System.out.println(Ansi.dim("─".repeat(60)));
 
             summaryBuf.set(new StringBuilder());
+            agentLineStart = true;
 
             String taskBody = config.taskPreambleStrip()
                 ? Prompts.stripPreamble(taskContent)
@@ -255,16 +292,23 @@ public class TaskRunner {
                 ? Prompts.forTaskShort(taskBody)
                 : Prompts.forTask(taskBody);
 
-            agentLineStart = true;
-            Spinner thinking = new Spinner("agent thinking");
-            activeSpinner.set(thinking);
-            thinking.start();
+            if (terminal != null) {
+                startToggleThread();
+            } else {
+                Spinner thinking = new Spinner("agent thinking");
+                activeSpinner.set(thinking);
+                thinking.start();
+            }
 
             inputTokens += TokenEstimator.estimate(prompt);
             var response = client.prompt(new PromptRequest(
                 currentSessionId, List.of(new TextContent(prompt))));
 
-            stopActiveSpinner();
+            if (terminal != null) {
+                stopToggleThread();
+            } else {
+                stopActiveSpinner();
+            }
             closeAgentGutter();
             System.out.println(Ansi.dim("[stop] " + response.stopReason()));
             outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
@@ -289,15 +333,24 @@ public class TaskRunner {
 
                     summaryBuf.set(new StringBuilder());
                     agentLineStart = true;
-                    Spinner fixThinking = new Spinner("agent thinking (fix attempt " + attempt + ")");
-                    activeSpinner.set(fixThinking);
-                    fixThinking.start();
+
+                    if (terminal != null) {
+                        startToggleThread();
+                    } else {
+                        Spinner fixThinking = new Spinner("agent thinking (fix attempt " + attempt + ")");
+                        activeSpinner.set(fixThinking);
+                        fixThinking.start();
+                    }
 
                     inputTokens += TokenEstimator.estimate(fixPrompt);
                     var fixResp = client.prompt(new PromptRequest(
                         currentSessionId, List.of(new TextContent(fixPrompt))));
 
-                    stopActiveSpinner();
+                    if (terminal != null) {
+                        stopToggleThread();
+                    } else {
+                        stopActiveSpinner();
+                    }
                     closeAgentGutter();
                     System.out.println(Ansi.dim("[stop] " + fixResp.stopReason()));
                     outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
@@ -530,11 +583,34 @@ public class TaskRunner {
     }
 
     /**
-     * Print streamed agent text with a dim "│ " gutter at the start of each
-     * line, so model output is visually distinct from the runner's own
-     * messages. Falls back to a plain print when colors are disabled.
+     * Route an agent text chunk to stdout (VISIBLE) or the live buffer (HIDDEN).
+     * When no toggle is active (terminal==null or outputMode==null) we fall back
+     * to the original streaming path.
      */
     private void printAgentChunk(String text) {
+        if (terminal == null || outputMode == null) {
+            summaryBuf.get().append(text);
+            stopActiveSpinner();
+            renderToStdout(text);
+            return;
+        }
+        synchronized (outputLock) {
+            summaryBuf.get().append(text);
+            if (outputMode == OutputMode.HIDDEN) {
+                for (int i = 0; i < text.length(); i++) {
+                    char c = text.charAt(i);
+                    if (hiddenLineStart) { liveBuffer.append(GUTTER); hiddenLineStart = false; }
+                    liveBuffer.append(c);
+                    if (c == '\n') hiddenLineStart = true;
+                }
+            } else {
+                stopActiveSpinner();
+                renderToStdout(text);
+            }
+        }
+    }
+
+    private void renderToStdout(String text) {
         if (!Ansi.enabled()) {
             System.out.print(text);
             agentLineStart = text.endsWith("\n");
@@ -543,14 +619,34 @@ public class TaskRunner {
         StringBuilder out = new StringBuilder(text.length() + 16);
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
-            if (agentLineStart) {
-                out.append(GUTTER);
-                agentLineStart = false;
-            }
+            if (agentLineStart) { out.append(GUTTER); agentLineStart = false; }
             out.append(c);
             if (c == '\n') agentLineStart = true;
         }
         System.out.print(out);
+    }
+
+    /**
+     * Log a single event line. When a toggle is active and mode is HIDDEN, the
+     * line goes into the live buffer; otherwise it prints immediately.
+     */
+    private void logEvent(String line) {
+        if (terminal == null || outputMode == null) {
+            stopActiveSpinner();
+            closeAgentGutter();
+            System.out.println(line);
+            return;
+        }
+        synchronized (outputLock) {
+            if (outputMode == OutputMode.HIDDEN) {
+                if (!hiddenLineStart) { liveBuffer.append('\n'); hiddenLineStart = true; }
+                liveBuffer.append(line).append('\n');
+            } else {
+                stopActiveSpinner();
+                closeAgentGutter();
+                System.out.println(line);
+            }
+        }
     }
 
     /** Ensure the next runner-emitted line starts on a fresh row, not after a gutter. */
@@ -558,6 +654,81 @@ public class TaskRunner {
         if (!agentLineStart) {
             System.out.println();
             agentLineStart = true;
+        }
+    }
+
+    /**
+     * Start the background keypress-listener thread for a task.
+     * Enters raw mode so [space] is received without needing Enter.
+     * Also starts the initial HIDDEN-mode spinner.
+     */
+    private void startToggleThread() {
+        outputMode = OutputMode.HIDDEN;
+        liveBuffer.setLength(0);
+        hiddenLineStart = true;
+
+        Spinner thinking = new Spinner("agent thinking  [space] show/hide");
+        activeSpinner.set(thinking);
+        thinking.start();
+
+        Attributes savedAttrs = terminal.enterRawMode();
+        toggleThread = new Thread(() -> {
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    int ch;
+                    try {
+                        ch = terminal.reader().read(50L);
+                    } catch (IOException e) {
+                        break;
+                    }
+                    if (ch == ' ') toggleOutput();
+                }
+            } finally {
+                terminal.setAttributes(savedAttrs);
+            }
+        }, "toggle-output");
+        toggleThread.setDaemon(true);
+        toggleThread.start();
+    }
+
+    /**
+     * Stop the toggle thread, restore terminal state, and flush any content
+     * that accumulated in the live buffer while mode was HIDDEN.
+     */
+    private void stopToggleThread() {
+        Thread t = toggleThread;
+        toggleThread = null;
+        if (t != null) {
+            t.interrupt();
+            try { t.join(300); } catch (InterruptedException ignored) {}
+        }
+        synchronized (outputLock) {
+            stopActiveSpinner();
+            liveBuffer.setLength(0);
+            outputMode = null;
+        }
+    }
+
+    /** Called from the toggle thread when [space] is pressed. */
+    private void toggleOutput() {
+        synchronized (outputLock) {
+            if (outputMode == OutputMode.HIDDEN) {
+                stopActiveSpinner();
+                if (!liveBuffer.isEmpty()) {
+                    System.out.print(liveBuffer);
+                    agentLineStart = hiddenLineStart;
+                    liveBuffer.setLength(0);
+                }
+                outputMode = OutputMode.VISIBLE;
+            } else if (outputMode == OutputMode.VISIBLE) {
+                if (!agentLineStart) { System.out.println(); agentLineStart = true; }
+                liveBuffer.setLength(0);
+                hiddenLineStart = true;
+                Spinner s = new Spinner("agent thinking  [space] show/hide");
+                activeSpinner.set(s);
+                s.start();
+                outputMode = OutputMode.HIDDEN;
+            }
         }
     }
 
@@ -569,37 +740,23 @@ public class TaskRunner {
             .sessionUpdateConsumer(notification -> {
                 var update = notification.update();
                 if (update instanceof AgentMessageChunk msg) {
-                    stopActiveSpinner();
-                    String text = ((TextContent) msg.content()).text();
-                    printAgentChunk(text);
-                    summaryBuf.get().append(text);
+                    printAgentChunk(((TextContent) msg.content()).text());
                 } else if (update instanceof AgentThoughtChunk thought
                         && config.logThoughts()) {
-                    stopActiveSpinner();
-                    closeAgentGutter();
-                    System.out.println(Ansi.dim("[thinking] "
+                    logEvent(Ansi.dim("[thinking] "
                         + ((TextContent) thought.content()).text().trim()));
                 } else if (update instanceof ToolCall tc
                         && config.logToolCalls()) {
-                    stopActiveSpinner();
-                    closeAgentGutter();
-                    System.out.println(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
+                    logEvent(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
                 } else if (update instanceof ToolCallUpdateNotification tcu
                         && config.logToolCalls()) {
-                    stopActiveSpinner();
-                    closeAgentGutter();
-                    System.out.println(Ansi.dim(
-                        "[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
+                    logEvent(Ansi.dim("[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
                 }
             })
 
             // Serve any file the agent wants to read
             .readTextFileHandler(req -> {
-                if (config.logToolCalls()) {
-                    stopActiveSpinner();
-                    closeAgentGutter();
-                    System.out.println(Ansi.dim("[read ] " + req.path()));
-                }
+                if (config.logToolCalls()) logEvent(Ansi.dim("[read ] " + req.path()));
                 try {
                     return new ReadTextFileResponse(Files.readString(Path.of(req.path())));
                 } catch (IOException e) {
@@ -610,12 +767,8 @@ public class TaskRunner {
 
             // Write any file the agent produces
             .writeTextFileHandler(req -> {
-                if (config.logToolCalls()) {
-                    stopActiveSpinner();
-                    closeAgentGutter();
-                    System.out.println(Ansi.dim("[write] " + req.path()
-                        + " (" + req.content().length() + " chars)"));
-                }
+                if (config.logToolCalls()) logEvent(Ansi.dim("[write] " + req.path()
+                    + " (" + req.content().length() + " chars)"));
                 try {
                     Path p = Path.of(req.path());
                     if (p.getParent() != null) Files.createDirectories(p.getParent());
@@ -630,9 +783,7 @@ public class TaskRunner {
             // Auto-approve every permission request — prefer ALLOW_ALWAYS
             .requestPermissionHandler(req -> {
                 String tool = req.toolCall() != null ? req.toolCall().title() : "unknown";
-                stopActiveSpinner();
-                closeAgentGutter();
-                System.out.println(Ansi.dim("[perm ] auto-approved: " + tool));
+                logEvent(Ansi.dim("[perm ] auto-approved: " + tool));
                 List<PermissionOption> opts = req.options();
                 String chosen = opts.stream()
                     .filter(o -> o.kind() != null

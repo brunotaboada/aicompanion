@@ -1,9 +1,9 @@
 # aicompanion configuration
+project_dir: .
 tasks_dir: feature/tasks
 task_extensions: [md, txt]
 task_sort: alphabetical
 model: sonnet
-project_dir: .
 test_command: mvn test
 test_enabled: true
 stop_on_failure: true
