@@ -27,64 +27,24 @@ import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.agent.AgentSpec;
 import io.aicompanion.config.Config;
 import io.aicompanion.console.Ansi;
-import io.aicompanion.console.Spinner;
 import io.aicompanion.util.TokenEstimator;
 import java.io.IOException;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
-import org.jline.terminal.Attributes;
 import org.jline.terminal.Terminal;
 
 public class TaskRunner {
 
-    private final Config     config;
-    private final RunOptions runOptions;
-
-    /**
-     * Holds the in-progress task's text output.
-     * AtomicReference lets the sessionUpdateConsumer lambda (created once at
-     * client-build time) write into whichever StringBuilder is current.
-     */
-    private final AtomicReference<StringBuilder> summaryBuf =
-        new AtomicReference<>(new StringBuilder());
-
-    /** Active "thinking" spinner; cleared as soon as the agent streams its first chunk. */
-    private final AtomicReference<Spinner> activeSpinner = new AtomicReference<>();
-
-    /** Gutter prefix prepended to each line of streamed agent text. */
-    private static final String GUTTER = Ansi.dim("│ ");
-
-    /** True when the next chunk character will land at the start of a fresh line (streaming mode). */
-    private volatile boolean agentLineStart = true;
-
-    /** Same tracking for the live buffer (hidden mode). */
-    private volatile boolean hiddenLineStart = true;
-
-    /** JLine terminal used for the real-time toggle. Null in CLI mode. */
-    private final Terminal terminal;
-
-    // ── real-time output toggle ───────────────────────────────────────────────
-
-    private enum OutputMode { VISIBLE, HIDDEN }
-
-    /** Current per-task output mode; null outside of a toggle-enabled task. */
-    private volatile OutputMode outputMode;
-
-    /** Guards all output operations so the toggle thread and consumer don't race. */
-    private final Object outputLock = new Object();
-
-    /** Accumulates rendered output while in HIDDEN mode; flushed on toggle to VISIBLE. */
-    private final StringBuilder liveBuffer = new StringBuilder();
-
-    /** Background thread that reads keypresses to toggle output visibility. */
-    private volatile Thread toggleThread;
+    private final Config         config;
+    private final RunOptions     runOptions;
+    private final AgentConsole   console;
+    private final BatchResolver  batchResolver;
 
     /** Current ACP session — mutates when {@code compact_after_n_tasks} triggers a refresh. */
     private String currentSessionId;
 
-    /** Number of tasks already shipped through {@link #currentSessionId}; used by compact logic. */
+    /** Number of tasks shipped through {@link #currentSessionId}; used by compact logic. */
     private int tasksInCurrentSession = 0;
 
     /** Names of tasks completed since the last compaction — handed off to the next session. */
@@ -103,24 +63,15 @@ public class TaskRunner {
     }
 
     public TaskRunner(Config config, RunOptions runOptions, Terminal terminal) {
-        this.config     = config;
-        this.runOptions = runOptions;
-        this.terminal   = terminal;
-    }
-
-    /**
-     * One feature's worth of tasks. {@code featureName} is the subdirectory
-     * under {@code features_dir} and prefixes state keys so resume tracks
-     * "feature-a/01-task.md" distinctly from "feature-b/01-task.md".
-     */
-    record Batch(String featureName, List<Path> taskPaths) {
-        String stateKeyPrefix() { return featureName + "/"; }
-        String stateKeyFor(Path taskPath) { return stateKeyPrefix() + taskPath.getFileName(); }
+        this.config        = config;
+        this.runOptions    = runOptions;
+        this.console       = new AgentConsole(terminal);
+        this.batchResolver = new BatchResolver(config);
     }
 
     public void run() throws Exception {
-        List<Batch> batches = resolveBatches();
-        int totalTasks = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
+        List<Batch> batches   = batchResolver.resolveBatches();
+        int         totalTasks = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
 
         if (totalTasks == 0) {
             System.out.println("No features with tasks found under: " + config.featuresDir());
@@ -195,15 +146,7 @@ public class TaskRunner {
                         + "  (" + batch.taskPaths().size() + " task"
                         + (batch.taskPaths().size() == 1 ? "" : "s") + ") ═══")));
                 boolean keepGoing = runTaskBatch(
-                    client,
-                    projDir,
-                    state,
-                    batch,
-                    taskOffset,
-                    totalTasks,
-                    verifier,
-                    reporter
-                );
+                    client, projDir, state, batch, taskOffset, totalTasks, verifier, reporter);
                 taskOffset += batch.taskPaths().size();
                 if (!keepGoing) return;
             }
@@ -212,7 +155,7 @@ public class TaskRunner {
             System.out.println(Ansi.green("All " + totalTasks + " tasks complete."));
             printTokenSummary();
         } finally {
-            stopActiveSpinner();
+            console.stopActiveSpinner();
         }
     }
 
@@ -290,7 +233,7 @@ public class TaskRunner {
 
             String stopReason = sendPrompt(client, "agent thinking", prompt);
             System.out.println(Ansi.dim("[stop] " + stopReason));
-            reporter.write(displayName, summaryBuf.get().toString());
+            reporter.write(displayName, console.getSummaryText());
 
             boolean keepGoing = runVerifyAndFix(
                 client, verifier, reporter, state, stateKey, taskHash, displayName);
@@ -350,7 +293,7 @@ public class TaskRunner {
             String fixStop = sendPrompt(client,
                 "agent thinking (fix attempt " + attempt + ")", fixPrompt);
             System.out.println(Ansi.dim("[stop] " + fixStop));
-            reporter.write(displayName + ".fix" + attempt, summaryBuf.get().toString());
+            reporter.write(displayName + ".fix" + attempt, console.getSummaryText());
 
             result = runTestsWithSpinner(verifier, "Re-running tests");
         }
@@ -466,12 +409,11 @@ public class TaskRunner {
     }
 
     private TestVerifier.Result runTestsWithSpinner(TestVerifier verifier, String label) {
-        Spinner s = new Spinner(label);
-        s.start();
+        console.startSpinner(label);
         try {
             return verifier.run();
         } finally {
-            s.stop();
+            console.stopActiveSpinner();
         }
     }
 
@@ -527,11 +469,6 @@ public class TaskRunner {
         return totalSkip;
     }
 
-    private void stopActiveSpinner() {
-        Spinner s = activeSpinner.getAndSet(null);
-        if (s != null) s.stop();
-    }
-
     /**
      * Send a prompt to the current session, tracking tokens both ways.
      * If {@code spinnerLabel} is non-null, a spinner (or the toggle thread when a
@@ -540,15 +477,12 @@ public class TaskRunner {
      * @return the agent's stop reason
      */
     private String sendPrompt(AcpSyncClient client, String spinnerLabel, String prompt) {
-        summaryBuf.set(new StringBuilder());
-        agentLineStart = true;
+        console.resetSummary();
         if (spinnerLabel != null) {
-            if (terminal != null) {
-                startToggleThread();
+            if (console.hasToggle()) {
+                console.startToggle();
             } else {
-                Spinner s = new Spinner(spinnerLabel);
-                activeSpinner.set(s);
-                s.start();
+                console.startSpinner(spinnerLabel);
             }
         }
         try {
@@ -558,161 +492,11 @@ public class TaskRunner {
             return String.valueOf(resp.stopReason());
         } finally {
             if (spinnerLabel != null) {
-                if (terminal != null) stopToggleThread();
-                else stopActiveSpinner();
+                if (console.hasToggle()) console.stopToggle();
+                else console.stopActiveSpinner();
             }
-            closeAgentGutter();
-            outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
-        }
-    }
-
-    /**
-     * Route an agent text chunk to stdout (VISIBLE) or the live buffer (HIDDEN).
-     * When no toggle is active (terminal==null or outputMode==null) we fall back
-     * to the original streaming path.
-     */
-    private void printAgentChunk(String text) {
-        if (terminal == null || outputMode == null) {
-            summaryBuf.get().append(text);
-            stopActiveSpinner();
-            renderToStdout(text);
-            return;
-        }
-        synchronized (outputLock) {
-            summaryBuf.get().append(text);
-            if (outputMode == OutputMode.HIDDEN) {
-                for (int i = 0; i < text.length(); i++) {
-                    char c = text.charAt(i);
-                    if (hiddenLineStart) { liveBuffer.append(GUTTER); hiddenLineStart = false; }
-                    liveBuffer.append(c);
-                    if (c == '\n') hiddenLineStart = true;
-                }
-            } else {
-                stopActiveSpinner();
-                renderToStdout(text);
-            }
-        }
-    }
-
-    private void renderToStdout(String text) {
-        if (!Ansi.enabled()) {
-            System.out.print(text);
-            agentLineStart = text.endsWith("\n");
-            return;
-        }
-        StringBuilder out = new StringBuilder(text.length() + 16);
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (agentLineStart) { out.append(GUTTER); agentLineStart = false; }
-            out.append(c);
-            if (c == '\n') agentLineStart = true;
-        }
-        System.out.print(out);
-    }
-
-    /**
-     * Log a single event line. When a toggle is active and mode is HIDDEN, the
-     * line goes into the live buffer; otherwise it prints immediately.
-     */
-    private void logEvent(String line) {
-        if (terminal == null || outputMode == null) {
-            stopActiveSpinner();
-            closeAgentGutter();
-            System.out.println(line);
-            return;
-        }
-        synchronized (outputLock) {
-            if (outputMode == OutputMode.HIDDEN) {
-                if (!hiddenLineStart) { liveBuffer.append('\n'); hiddenLineStart = true; }
-                liveBuffer.append(line).append('\n');
-            } else {
-                stopActiveSpinner();
-                closeAgentGutter();
-                System.out.println(line);
-            }
-        }
-    }
-
-    /** Ensure the next runner-emitted line starts on a fresh row, not after a gutter. */
-    private void closeAgentGutter() {
-        if (!agentLineStart) {
-            System.out.println();
-            agentLineStart = true;
-        }
-    }
-
-    /**
-     * Start the background keypress-listener thread for a task.
-     * Enters raw mode so [space] is received without needing Enter.
-     * Also starts the initial HIDDEN-mode spinner.
-     */
-    private void startToggleThread() {
-        outputMode = OutputMode.HIDDEN;
-        liveBuffer.setLength(0);
-        hiddenLineStart = true;
-
-        Spinner thinking = new Spinner("agent thinking  [space] show/hide");
-        activeSpinner.set(thinking);
-        thinking.start();
-
-        Attributes savedAttrs = terminal.enterRawMode();
-        toggleThread = new Thread(() -> {
-            try {
-                while (!Thread.currentThread().isInterrupted()) {
-                    int ch;
-                    try {
-                        ch = terminal.reader().read(50L);
-                    } catch (IOException e) {
-                        break;
-                    }
-                    if (ch == ' ') toggleOutput();
-                }
-            } finally {
-                terminal.setAttributes(savedAttrs);
-            }
-        }, "toggle-output");
-        toggleThread.setDaemon(true);
-        toggleThread.start();
-    }
-
-    /**
-     * Stop the toggle thread, restore terminal state, and flush any content
-     * that accumulated in the live buffer while mode was HIDDEN.
-     */
-    private void stopToggleThread() {
-        Thread t = toggleThread;
-        toggleThread = null;
-        if (t != null) {
-            t.interrupt();
-            try { t.join(300); } catch (InterruptedException ignored) {}
-        }
-        synchronized (outputLock) {
-            stopActiveSpinner();
-            liveBuffer.setLength(0);
-            outputMode = null;
-        }
-    }
-
-    /** Called from the toggle thread when [space] is pressed. */
-    private void toggleOutput() {
-        synchronized (outputLock) {
-            if (outputMode == OutputMode.HIDDEN) {
-                stopActiveSpinner();
-                if (!liveBuffer.isEmpty()) {
-                    System.out.print(liveBuffer);
-                    agentLineStart = hiddenLineStart;
-                    liveBuffer.setLength(0);
-                }
-                outputMode = OutputMode.VISIBLE;
-            } else if (outputMode == OutputMode.VISIBLE) {
-                if (!agentLineStart) { System.out.println(); agentLineStart = true; }
-                liveBuffer.setLength(0);
-                hiddenLineStart = true;
-                Spinner s = new Spinner("agent thinking  [space] show/hide");
-                activeSpinner.set(s);
-                s.start();
-                outputMode = OutputMode.HIDDEN;
-            }
+            console.closeAgentGutter();
+            outputTokens += TokenEstimator.estimate(console.getSummaryText());
         }
     }
 
@@ -724,23 +508,23 @@ public class TaskRunner {
             .sessionUpdateConsumer(notification -> {
                 var update = notification.update();
                 if (update instanceof AgentMessageChunk msg) {
-                    printAgentChunk(((TextContent) msg.content()).text());
+                    console.printAgentChunk(((TextContent) msg.content()).text());
                 } else if (update instanceof AgentThoughtChunk thought
                         && config.logThoughts()) {
-                    logEvent(Ansi.dim("[thinking] "
+                    console.logEvent(Ansi.dim("[thinking] "
                         + ((TextContent) thought.content()).text().trim()));
                 } else if (update instanceof ToolCall tc
                         && config.logToolCalls()) {
-                    logEvent(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
+                    console.logEvent(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
                 } else if (update instanceof ToolCallUpdateNotification tcu
                         && config.logToolCalls()) {
-                    logEvent(Ansi.dim("[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
+                    console.logEvent(Ansi.dim("[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
                 }
             })
 
             // Serve any file the agent wants to read
             .readTextFileHandler(req -> {
-                if (config.logToolCalls()) logEvent(Ansi.dim("[read ] " + req.path()));
+                if (config.logToolCalls()) console.logEvent(Ansi.dim("[read ] " + req.path()));
                 try {
                     return new ReadTextFileResponse(Files.readString(Path.of(req.path())));
                 } catch (IOException e) {
@@ -751,7 +535,7 @@ public class TaskRunner {
 
             // Write any file the agent produces
             .writeTextFileHandler(req -> {
-                if (config.logToolCalls()) logEvent(Ansi.dim("[write] " + req.path()
+                if (config.logToolCalls()) console.logEvent(Ansi.dim("[write] " + req.path()
                     + " (" + req.content().length() + " chars)"));
                 try {
                     Path p = Path.of(req.path());
@@ -767,7 +551,7 @@ public class TaskRunner {
             // Auto-approve every permission request — prefer ALLOW_ALWAYS
             .requestPermissionHandler(req -> {
                 String tool = req.toolCall() != null ? req.toolCall().title() : "unknown";
-                logEvent(Ansi.dim("[perm ] auto-approved: " + tool));
+                console.logEvent(Ansi.dim("[perm ] auto-approved: " + tool));
                 List<PermissionOption> opts = req.options();
                 String chosen = opts.stream()
                     .filter(o -> o.kind() != null
@@ -844,59 +628,5 @@ public class TaskRunner {
             }
         }
         return best;
-    }
-
-    /**
-     * One batch per feature subdirectory under {@code features_dir} that has
-     * a {@code tasks/} child with at least one task file. Sorted by feature
-     * name (or insertion order when {@code task_sort=none}).
-     *
-     * Whether {@code features/} contains one feature or many, the runner
-     * iterates all of them — there is no special single-feature short-circuit.
-     */
-    List<Batch> resolveBatches() throws IOException {
-        Path featuresDir = Path.of(config.featuresDir());
-        if (!Files.isDirectory(featuresDir)) {
-            throw new IllegalArgumentException(
-                "Features directory not found: " + featuresDir.toAbsolutePath()
-                + " — create it with at least one feature subfolder containing tasks/.");
-        }
-
-        Comparator<Path> order = "none".equalsIgnoreCase(config.taskSort())
-            ? Comparator.comparing(p -> 0)
-            : Comparator.comparing(p -> p.getFileName().toString());
-
-        List<Batch> batches = new ArrayList<>();
-        try (var stream = Files.list(featuresDir)) {
-            List<Path> featureDirs = stream
-                .filter(Files::isDirectory)
-                .filter(p -> Files.isDirectory(p.resolve("tasks")))
-                .sorted(order)
-                .toList();
-            for (Path featureDir : featureDirs) {
-                List<Path> taskPaths = resolveTaskPathsIn(featureDir.resolve("tasks"));
-                if (taskPaths.isEmpty()) continue;
-                batches.add(new Batch(featureDir.getFileName().toString(), taskPaths));
-            }
-        }
-        return batches;
-    }
-
-    private List<Path> resolveTaskPathsIn(Path dir) throws IOException {
-        Comparator<Path> order = "none".equalsIgnoreCase(config.taskSort())
-            ? Comparator.comparing(p -> 0)
-            : Comparator.comparing(p -> p.getFileName().toString());
-
-        try (var stream = Files.list(dir)) {
-            return stream
-                .filter(p -> {
-                    String name = p.getFileName().toString();
-                    int dot = name.lastIndexOf('.');
-                    String ext = dot >= 0 ? name.substring(dot + 1) : "";
-                    return config.taskExtensions().contains(ext);
-                })
-                .sorted(order)
-                .toList();
-        }
     }
 }

@@ -25,10 +25,10 @@ class TaskRunnerPathsTest {
         Files.writeString(tasks.resolve("ignore.java"),  "not a task");
 
         Config cfg = ConfigLoader.load(Map.of("features_dir", features.toString()));
-        List<TaskRunner.Batch> batches = new TaskRunner(cfg).resolveBatches();
+        List<Batch> batches = new BatchResolver(cfg).resolveBatches();
 
         assertEquals(1, batches.size(), "one feature, one batch");
-        TaskRunner.Batch b = batches.get(0);
+        Batch b = batches.get(0);
         assertEquals("hello",  b.featureName());
         assertEquals("hello/", b.stateKeyPrefix());
         assertEquals(3, b.taskPaths().size());
@@ -46,7 +46,7 @@ class TaskRunnerPathsTest {
         Files.writeString(aTasks.resolve("01-a.md"), "a");
 
         Config cfg = ConfigLoader.load(Map.of("features_dir", features.toString()));
-        List<TaskRunner.Batch> batches = new TaskRunner(cfg).resolveBatches();
+        List<Batch> batches = new BatchResolver(cfg).resolveBatches();
 
         assertEquals(2, batches.size());
         assertEquals("a-first",  batches.get(0).featureName());
@@ -61,7 +61,7 @@ class TaskRunnerPathsTest {
         Files.writeString(real.resolve("01-only.md"), "x");
 
         Config cfg = ConfigLoader.load(Map.of("features_dir", features.toString()));
-        List<TaskRunner.Batch> batches = new TaskRunner(cfg).resolveBatches();
+        List<Batch> batches = new BatchResolver(cfg).resolveBatches();
 
         assertEquals(1, batches.size());
         assertEquals("real", batches.get(0).featureName());
@@ -75,7 +75,7 @@ class TaskRunnerPathsTest {
         Files.writeString(real.resolve("01-only.md"), "x");
 
         Config cfg = ConfigLoader.load(Map.of("features_dir", features.toString()));
-        List<TaskRunner.Batch> batches = new TaskRunner(cfg).resolveBatches();
+        List<Batch> batches = new BatchResolver(cfg).resolveBatches();
 
         assertEquals(1, batches.size());
         assertEquals("real", batches.get(0).featureName());
@@ -85,13 +85,13 @@ class TaskRunnerPathsTest {
     void emptyFeaturesDirReturnsNoBatches() throws IOException {
         Path features = Files.createDirectory(tempDir.resolve("features"));
         Config cfg = ConfigLoader.load(Map.of("features_dir", features.toString()));
-        assertTrue(new TaskRunner(cfg).resolveBatches().isEmpty());
+        assertTrue(new BatchResolver(cfg).resolveBatches().isEmpty());
     }
 
     @Test
     void missingFeaturesDirThrows() {
         Config cfg = ConfigLoader.load(Map.of("features_dir", "/nonexistent/path/xyz"));
-        TaskRunner runner = new TaskRunner(cfg);
-        assertThrows(IllegalArgumentException.class, runner::resolveBatches);
+        BatchResolver resolver = new BatchResolver(cfg);
+        assertThrows(IllegalArgumentException.class, resolver::resolveBatches);
     }
 }

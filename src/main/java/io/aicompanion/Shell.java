@@ -129,7 +129,7 @@ public class Shell {
 
     private void handleTasks() {
         try {
-            List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
+            List<Batch> batches = new BatchResolver(config).resolveBatches();
             int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
             if (total == 0) {
                 System.out.println(Ansi.yellow(
@@ -139,7 +139,7 @@ public class Shell {
             System.out.println("Features in " + Ansi.cyan(config.featuresDir())
                 + " (" + batches.size() + " features, " + total + " tasks):");
             int n = 0;
-            for (TaskRunner.Batch batch : batches) {
+            for (Batch batch : batches) {
                 System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
                 for (Path f : batch.taskPaths()) {
                     System.out.printf("  %2d. %s%n", ++n, f.getFileName());
@@ -152,7 +152,7 @@ public class Shell {
 
     private void handleStatus() {
         try {
-            List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
+            List<Batch> batches = new BatchResolver(config).resolveBatches();
             int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
             if (total == 0) {
                 System.out.println(Ansi.yellow(
@@ -163,7 +163,7 @@ public class Shell {
             System.out.println("Features in " + Ansi.cyan(config.featuresDir())
                 + " (" + batches.size() + " features, " + total + " tasks):");
             int n = 0;
-            for (TaskRunner.Batch batch : batches) {
+            for (Batch batch : batches) {
                 System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
                 for (Path f : batch.taskPaths()) {
                     String key = batch.stateKeyFor(f);
