@@ -281,9 +281,6 @@ public class TaskRunner {
                 Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName));
             System.out.println(Ansi.rule());
 
-            summaryBuf.set(new StringBuilder());
-            agentLineStart = true;
-
             String taskBody = config.taskPreambleStrip()
                 ? Prompts.stripPreamble(taskContent)
                 : taskContent;
@@ -291,27 +288,8 @@ public class TaskRunner {
                 ? Prompts.forTaskShort(taskBody)
                 : Prompts.forTask(taskBody);
 
-            if (terminal != null) {
-                startToggleThread();
-            } else {
-                Spinner thinking = new Spinner("agent thinking");
-                activeSpinner.set(thinking);
-                thinking.start();
-            }
-
-            inputTokens += TokenEstimator.estimate(prompt);
-            var response = client.prompt(new PromptRequest(
-                currentSessionId, List.of(new TextContent(prompt))));
-
-            if (terminal != null) {
-                stopToggleThread();
-            } else {
-                stopActiveSpinner();
-            }
-            closeAgentGutter();
-            System.out.println(Ansi.dim("[stop] " + response.stopReason()));
-            outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
-
+            String stopReason = sendPrompt(client, "agent thinking", prompt);
+            System.out.println(Ansi.dim("[stop] " + stopReason));
             reporter.write(displayName, summaryBuf.get().toString());
 
             if (config.testEnabled()) {
@@ -330,32 +308,10 @@ public class TaskRunner {
                         : Prompts.forFix(config.testCommand(), result.output(),
                             config.fixOutputMaxLines());
 
-                    summaryBuf.set(new StringBuilder());
-                    agentLineStart = true;
-
-                    if (terminal != null) {
-                        startToggleThread();
-                    } else {
-                        Spinner fixThinking = new Spinner("agent thinking (fix attempt " + attempt + ")");
-                        activeSpinner.set(fixThinking);
-                        fixThinking.start();
-                    }
-
-                    inputTokens += TokenEstimator.estimate(fixPrompt);
-                    var fixResp = client.prompt(new PromptRequest(
-                        currentSessionId, List.of(new TextContent(fixPrompt))));
-
-                    if (terminal != null) {
-                        stopToggleThread();
-                    } else {
-                        stopActiveSpinner();
-                    }
-                    closeAgentGutter();
-                    System.out.println(Ansi.dim("[stop] " + fixResp.stopReason()));
-                    outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
-
-                    reporter.write(displayName + ".fix" + attempt,
-                        summaryBuf.get().toString());
+                    String fixStop = sendPrompt(client,
+                        "agent thinking (fix attempt " + attempt + ")", fixPrompt);
+                    System.out.println(Ansi.dim("[stop] " + fixStop));
+                    reporter.write(displayName + ".fix" + attempt, summaryBuf.get().toString());
 
                     result = runTestsWithSpinner(verifier, "Re-running tests");
                 }
@@ -405,21 +361,7 @@ public class TaskRunner {
      * just back-references "the established format".
      */
     private void sendInitInstructions(AcpSyncClient client) {
-        String prompt = Prompts.forSessionInit();
-        summaryBuf.set(new StringBuilder());
-        agentLineStart = true;
-        Spinner s = new Spinner("session init");
-        activeSpinner.set(s);
-        s.start();
-        try {
-            inputTokens += TokenEstimator.estimate(prompt);
-            client.prompt(new PromptRequest(
-                currentSessionId, List.of(new TextContent(prompt))));
-        } finally {
-            stopActiveSpinner();
-            closeAgentGutter();
-            outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
-        }
+        sendPrompt(client, "session init", Prompts.forSessionInit());
         System.out.println(Ansi.dim("[init] session instructions sent"));
     }
 
@@ -441,14 +383,7 @@ public class TaskRunner {
             selectModel(client, currentSessionId, fresh.models());
             if (config.initInstructions()) sendInitInstructions(client);
 
-            String handoff = Prompts.forCompactHandoff(List.copyOf(recentTaskNames));
-            summaryBuf.set(new StringBuilder());
-            agentLineStart = true;
-            inputTokens += TokenEstimator.estimate(handoff);
-            client.prompt(new PromptRequest(
-                currentSessionId, List.of(new TextContent(handoff))));
-            closeAgentGutter();
-            outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
+            sendPrompt(client, null, Prompts.forCompactHandoff(List.copyOf(recentTaskNames)));
 
             tasksInCurrentSession = 0;
             recentTaskNames.clear();
@@ -579,6 +514,40 @@ public class TaskRunner {
     private void stopActiveSpinner() {
         Spinner s = activeSpinner.getAndSet(null);
         if (s != null) s.stop();
+    }
+
+    /**
+     * Send a prompt to the current session, tracking tokens both ways.
+     * If {@code spinnerLabel} is non-null, a spinner (or the toggle thread when a
+     * terminal is present) is started before the call and stopped after.
+     *
+     * @return the agent's stop reason
+     */
+    private String sendPrompt(AcpSyncClient client, String spinnerLabel, String prompt) {
+        summaryBuf.set(new StringBuilder());
+        agentLineStart = true;
+        if (spinnerLabel != null) {
+            if (terminal != null) {
+                startToggleThread();
+            } else {
+                Spinner s = new Spinner(spinnerLabel);
+                activeSpinner.set(s);
+                s.start();
+            }
+        }
+        try {
+            inputTokens += TokenEstimator.estimate(prompt);
+            var resp = client.prompt(new PromptRequest(
+                currentSessionId, List.of(new TextContent(prompt))));
+            return String.valueOf(resp.stopReason());
+        } finally {
+            if (spinnerLabel != null) {
+                if (terminal != null) stopToggleThread();
+                else stopActiveSpinner();
+            }
+            closeAgentGutter();
+            outputTokens += TokenEstimator.estimate(summaryBuf.get().toString());
+        }
     }
 
     /**
