@@ -292,52 +292,14 @@ public class TaskRunner {
             System.out.println(Ansi.dim("[stop] " + stopReason));
             reporter.write(displayName, summaryBuf.get().toString());
 
-            if (config.testEnabled()) {
-                TestVerifier.Result result = runTestsWithSpinner(verifier, "Running tests");
-
-                int attempt = 0;
-                while (!result.passed() && attempt < config.maxFixAttempts()) {
-                    attempt++;
-                    System.out.printf("%s Tests FAILED — fix attempt %d/%d%n",
-                        Ansi.red("✗"), attempt, config.maxFixAttempts());
-                    System.out.println(result.output());
-
-                    String fixPrompt = config.initInstructions()
-                        ? Prompts.forFixShort(config.testCommand(), result.output(),
-                            config.fixOutputMaxLines())
-                        : Prompts.forFix(config.testCommand(), result.output(),
-                            config.fixOutputMaxLines());
-
-                    String fixStop = sendPrompt(client,
-                        "agent thinking (fix attempt " + attempt + ")", fixPrompt);
-                    System.out.println(Ansi.dim("[stop] " + fixStop));
-                    reporter.write(displayName + ".fix" + attempt, summaryBuf.get().toString());
-
-                    result = runTestsWithSpinner(verifier, "Re-running tests");
-                }
-
-                if (result.passed()) {
-                    System.out.println(attempt == 0
-                        ? Ansi.green("✓ Tests passed") + "\n"
-                        : Ansi.green("✓ Tests passed")
-                            + " after " + attempt + " fix attempt(s)\n");
-                    state.markPassed(stateKey, taskHash);
-                } else {
-                    System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
-                        Ansi.red("✗"), config.maxFixAttempts());
-                    System.out.println(result.output());
-                    state.markFailed(stateKey, taskHash);
-                    if (config.stopOnFailure()) {
-                        persistState(state);
-                        System.out.println(Ansi.yellow(
-                            "Stopping — fix the failure before continuing."));
-                        return false;
-                    }
-                }
-            } else {
-                state.markPassed(stateKey, taskHash);
-            }
+            boolean keepGoing = runVerifyAndFix(
+                client, verifier, reporter, state, stateKey, taskHash, displayName);
             persistState(state);
+            if (!keepGoing) {
+                System.out.println(Ansi.yellow(
+                    "Stopping — fix the failure before continuing."));
+                return false;
+            }
 
             tasksInCurrentSession++;
             recentTaskNames.add(displayName);
@@ -352,6 +314,60 @@ public class TaskRunner {
             }
         }
         return true;
+    }
+
+    /**
+     * Run tests after an agent turn. On failure, send fix prompts up to
+     * {@code maxFixAttempts} times. Updates state (markPassed / markFailed).
+     *
+     * @return false when {@code stop_on_failure} is set and tests still fail
+     *         after all attempts; the caller should persist state then stop
+     */
+    private boolean runVerifyAndFix(AcpSyncClient client,
+                                    TestVerifier verifier, Reporter reporter,
+                                    RunState state,
+                                    String stateKey, String taskHash,
+                                    String displayName) {
+        if (!config.testEnabled()) {
+            state.markPassed(stateKey, taskHash);
+            return true;
+        }
+
+        TestVerifier.Result result = runTestsWithSpinner(verifier, "Running tests");
+        int attempt = 0;
+        while (!result.passed() && attempt < config.maxFixAttempts()) {
+            attempt++;
+            System.out.printf("%s Tests FAILED — fix attempt %d/%d%n",
+                Ansi.red("✗"), attempt, config.maxFixAttempts());
+            System.out.println(result.output());
+
+            String fixPrompt = config.initInstructions()
+                ? Prompts.forFixShort(config.testCommand(), result.output(),
+                    config.fixOutputMaxLines())
+                : Prompts.forFix(config.testCommand(), result.output(),
+                    config.fixOutputMaxLines());
+
+            String fixStop = sendPrompt(client,
+                "agent thinking (fix attempt " + attempt + ")", fixPrompt);
+            System.out.println(Ansi.dim("[stop] " + fixStop));
+            reporter.write(displayName + ".fix" + attempt, summaryBuf.get().toString());
+
+            result = runTestsWithSpinner(verifier, "Re-running tests");
+        }
+
+        if (result.passed()) {
+            System.out.println(attempt == 0
+                ? Ansi.green("✓ Tests passed") + "\n"
+                : Ansi.green("✓ Tests passed") + " after " + attempt + " fix attempt(s)\n");
+            state.markPassed(stateKey, taskHash);
+            return true;
+        } else {
+            System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
+                Ansi.red("✗"), config.maxFixAttempts());
+            System.out.println(result.output());
+            state.markFailed(stateKey, taskHash);
+            return !config.stopOnFailure();
+        }
     }
 
     /**
