@@ -115,6 +115,7 @@ public class TaskRunner {
      */
     record Batch(String featureName, List<Path> taskPaths) {
         String stateKeyPrefix() { return featureName + "/"; }
+        String stateKeyFor(Path taskPath) { return stateKeyPrefix() + taskPath.getFileName(); }
     }
 
     public void run() throws Exception {
@@ -207,7 +208,7 @@ public class TaskRunner {
                 if (!keepGoing) return;
             }
 
-            System.out.println(Ansi.dim("─".repeat(60)));
+            System.out.println(Ansi.rule());
             System.out.println(Ansi.green("All " + totalTasks + " tasks complete."));
             printTokenSummary();
         } finally {
@@ -227,7 +228,6 @@ public class TaskRunner {
                                   int taskOffset, int totalTasks,
                                   TestVerifier verifier, Reporter reporter) throws IOException {
         List<Path> taskPaths = batch.taskPaths();
-        String     prefix    = batch.stateKeyPrefix();
 
         for (int i = 0; i < taskPaths.size(); i++) {
             if (Thread.currentThread().isInterrupted()) {
@@ -236,11 +236,10 @@ public class TaskRunner {
                 return false;
             }
 
-            Path   taskPath = taskPaths.get(i);
-            String taskName = taskPath.getFileName().toString();
-            String stateKey = prefix + taskName;
-            int    globalIdx = taskOffset + i + 1;
-            String displayName = prefix + taskName;
+            Path   taskPath    = taskPaths.get(i);
+            String stateKey    = batch.stateKeyFor(taskPath);
+            int    globalIdx   = taskOffset + i + 1;
+            String displayName = stateKey;
 
             String taskContent = Files.readString(taskPath);
             String taskHash    = RunState.hash(taskContent);
@@ -258,7 +257,7 @@ public class TaskRunner {
             // test command is configured — otherwise there is nothing to check.
             if (config.preCheckTests() && config.testEnabled()
                     && config.testCommand() != null && !config.testCommand().isBlank()) {
-                System.out.println(Ansi.dim("─".repeat(60)));
+                System.out.println(Ansi.rule());
                 System.out.printf("%s %d/%d: %s %s%n",
                     Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName),
                     Ansi.dim("(pre-check)"));
@@ -277,10 +276,10 @@ public class TaskRunner {
             // Compact: refresh the session every N tasks to bound context drift.
             maybeCompactSession(client, projDir);
 
-            System.out.println(Ansi.dim("─".repeat(60)));
+            System.out.println(Ansi.rule());
             System.out.printf("%s %d/%d: %s%n",
                 Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName));
-            System.out.println(Ansi.dim("─".repeat(60)));
+            System.out.println(Ansi.rule());
 
             summaryBuf.set(new StringBuilder());
             agentLineStart = true;
@@ -477,7 +476,7 @@ public class TaskRunner {
             inEstimate += TokenEstimator.estimate(Prompts.forSessionInit());
         }
         System.out.println(Ansi.bold("Dry-run token estimate"));
-        System.out.println(Ansi.dim("─".repeat(60)));
+        System.out.println(Ansi.rule());
         int n = 0;
         for (Batch batch : batches) {
             for (Path taskPath : batch.taskPaths()) {
@@ -495,7 +494,7 @@ public class TaskRunner {
                     Ansi.dim("~" + t + " tok"));
             }
         }
-        System.out.println(Ansi.dim("─".repeat(60)));
+        System.out.println(Ansi.rule());
         System.out.printf("  Tasks:              %d%n", totalTasks);
         System.out.printf("  Estimated input:    ~%d tokens (initial prompts only)%n", inEstimate);
         if (config.testEnabled() && config.maxFixAttempts() > 0) {

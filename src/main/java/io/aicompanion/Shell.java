@@ -171,10 +171,8 @@ public class Shell {
             int n = 0;
             for (TaskRunner.Batch batch : batches) {
                 System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
-                String prefix = batch.stateKeyPrefix();
                 for (Path f : batch.taskPaths()) {
-                    String name = f.getFileName().toString();
-                    String key  = prefix + name;
+                    String key = batch.stateKeyFor(f);
                     String hash;
                     try { hash = RunState.hash(Files.readString(f)); }
                     catch (IOException e) { hash = ""; }
@@ -186,7 +184,7 @@ public class Shell {
                         default       -> " ";
                     };
                     System.out.printf("  %s %2d. %-40s %s%n",
-                        marker, ++n, name, Ansi.dim(label));
+                        marker, ++n, f.getFileName(), Ansi.dim(label));
                 }
             }
             System.out.println();
