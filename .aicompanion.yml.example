@@ -30,7 +30,7 @@ report_dir: .aicompanion/logs # directory for per-task markdown summary logs
 report_enabled: true          # write a .md log after each task
 
 log_tool_calls: true          # print [read]/[write]/[perm] events to console
-log_thoughts: false           # print agent reasoning / thinking to console
+log_thoughts: false           # print agent reasoning / working to console
 
 yolo: true                    # pass --yolo to the agent (auto-approve its tool calls)
 

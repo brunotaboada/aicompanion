@@ -99,16 +99,10 @@ public class Shell {
     // ── command handlers ─────────────────────────────────────────────────────
 
     private void handleRun(String[] parts, Terminal terminal) {
-        boolean fresh        = false;
-        boolean retryFailed  = false;
-        boolean dryRunTokens = false;
-        for (String p : parts) {
-            if ("--fresh".equals(p))           fresh = true;
-            if ("--retry-failed".equals(p))    retryFailed = true;
-            if ("--dry-run-tokens".equals(p))  dryRunTokens = true;
-        }
-        Map<String, String> overrides = parseFlags(parts, 1);
-        Config effective = overrides.isEmpty() ? config : ConfigLoader.load(overrides);
+        FlagParser.ParseResult parsed = FlagParser.parse(parts, 1);
+        Config effective = parsed.configOverrides().isEmpty()
+            ? config
+            : ConfigLoader.load(parsed.configOverrides());
 
         // Route Ctrl+C during the run to a thread interrupt so the runner can
         // bail out at the next task boundary. Restore the previous handler on
@@ -116,7 +110,7 @@ public class Shell {
         Thread runner = Thread.currentThread();
         SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
         try {
-            new TaskRunner(effective, new RunOptions(fresh, retryFailed, dryRunTokens), terminal).run();
+            new TaskRunner(effective, parsed.runOptions(), terminal).run();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println(Ansi.yellow("\nAborted."));
@@ -135,7 +129,7 @@ public class Shell {
 
     private void handleTasks() {
         try {
-            List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
+            List<Batch> batches = new BatchResolver(config).resolveBatches();
             int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
             if (total == 0) {
                 System.out.println(Ansi.yellow(
@@ -145,7 +139,7 @@ public class Shell {
             System.out.println("Features in " + Ansi.cyan(config.featuresDir())
                 + " (" + batches.size() + " features, " + total + " tasks):");
             int n = 0;
-            for (TaskRunner.Batch batch : batches) {
+            for (Batch batch : batches) {
                 System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
                 for (Path f : batch.taskPaths()) {
                     System.out.printf("  %2d. %s%n", ++n, f.getFileName());
@@ -158,7 +152,7 @@ public class Shell {
 
     private void handleStatus() {
         try {
-            List<TaskRunner.Batch> batches = new TaskRunner(config).resolveBatches();
+            List<Batch> batches = new BatchResolver(config).resolveBatches();
             int total = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
             if (total == 0) {
                 System.out.println(Ansi.yellow(
@@ -169,12 +163,10 @@ public class Shell {
             System.out.println("Features in " + Ansi.cyan(config.featuresDir())
                 + " (" + batches.size() + " features, " + total + " tasks):");
             int n = 0;
-            for (TaskRunner.Batch batch : batches) {
+            for (Batch batch : batches) {
                 System.out.println("  " + Ansi.bold(batch.featureName()) + ":");
-                String prefix = batch.stateKeyPrefix();
                 for (Path f : batch.taskPaths()) {
-                    String name = f.getFileName().toString();
-                    String key  = prefix + name;
+                    String key = batch.stateKeyFor(f);
                     String hash;
                     try { hash = RunState.hash(Files.readString(f)); }
                     catch (IOException e) { hash = ""; }
@@ -186,7 +178,7 @@ public class Shell {
                         default       -> " ";
                     };
                     System.out.printf("  %s %2d. %-40s %s%n",
-                        marker, ++n, name, Ansi.dim(label));
+                        marker, ++n, f.getFileName(), Ansi.dim(label));
                 }
             }
             System.out.println();
@@ -326,41 +318,4 @@ public class Shell {
         return new AggregateCompleter(topLevel, runCompleter, configSetCompleter);
     }
 
-    /** Parse --key value pairs from a split command line starting at index `from`. */
-    private static Map<String, String> parseFlags(String[] parts, int from) {
-        Map<String, String> result = new HashMap<>();
-        for (int i = from; i < parts.length; i++) {
-            String p = parts[i];
-            if (p.startsWith("--")) {
-                String key = p.substring(2).replace('-', '_');
-                switch (key) {
-                    case "no_tests"             -> result.put("test_enabled",        "false");
-                    case "no_stop_on_failure"   -> result.put("stop_on_failure",     "false");
-                    case "log_thoughts"         -> result.put("log_thoughts",        "true");
-                    case "no_yolo"              -> result.put("yolo",                "false");
-                    case "pre_check_tests"      -> result.put("pre_check_tests",     "true");
-                    case "init_instructions"    -> result.put("init_instructions",   "true");
-                    case "task_preamble_strip"  -> result.put("task_preamble_strip", "true");
-                    case "compact_after"        -> {
-                        if (i + 1 < parts.length) { result.put("compact_after_n_tasks", parts[++i]); }
-                    }
-                    case "fix_output_lines"     -> {
-                        if (i + 1 < parts.length) { result.put("fix_output_max_lines", parts[++i]); }
-                    }
-                    case "max_tokens"           -> {
-                        if (i + 1 < parts.length) { result.put("max_tokens_per_run", parts[++i]); }
-                    }
-                    // RunOptions live outside Config; consumed in handleRun.
-                    case "fresh", "retry_failed", "dry_run_tokens" -> { /* no-op */ }
-                    default -> {
-                        if (i + 1 < parts.length) {
-                            result.put(key, parts[i + 1]);
-                            i++;
-                        }
-                    }
-                }
-            }
-        }
-        return result;
-    }
 }

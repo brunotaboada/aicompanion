@@ -27,6 +27,8 @@ public final class Ansi {
     public static String bold(String s)   { return wrap(BOLD, s); }
     public static String dim(String s)    { return wrap(DIM, s); }
 
+    public static String rule() { return dim("─".repeat(60)); }
+
     private static String wrap(String code, String s) {
         if (!ENABLED || s == null || s.isEmpty()) return s;
         return code + s + RESET;
