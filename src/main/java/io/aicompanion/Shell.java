@@ -22,7 +22,10 @@ public class Shell {
 
     private static final List<String> BUILT_IN_COMMANDS = List.of(
         "run", "tasks", "agents", "config", "status", "reset",
-        "skills", "help", "?", "exit", "quit");
+        "skills", "create-feature", "help", "?", "exit", "quit");
+
+    private static final List<String> CREATE_FEATURE_FLAGS = List.of(
+        "--seed", "--auto", "--force");
 
     private static final List<String> RUN_FLAGS = List.of(
         "--features", "--agent", "--model", "--project", "--test-command",
@@ -95,6 +98,7 @@ public class Shell {
                 case "status"          -> handleStatus();
                 case "reset"           -> handleReset(reader);
                 case "skills"          -> handleSkills();
+                case "create-feature"  -> handleCreateFeature(parts, terminal);
                 case "help", "?"       -> printHelp();
                 case "exit", "quit"    -> { System.out.println("Bye."); return; }
                 default -> {
@@ -178,6 +182,63 @@ public class Shell {
                 Ansi.green("✓"), md.name(), Ansi.dim(md.description()));
             System.out.printf("    %s%n",
                 Ansi.dim("output → <features_dir>/<feature>/" + md.outputRelativePath()));
+        }
+    }
+
+    private void handleCreateFeature(String[] parts, Terminal terminal) {
+        // Parse: create-feature <feature> [--seed <path>] [--auto] [--force]
+        String feature = null;
+        Path   seed    = null;
+        boolean auto   = false;
+        boolean force  = false;
+        for (int i = 1; i < parts.length; i++) {
+            switch (parts[i]) {
+                case "--seed"  -> { if (i + 1 < parts.length) seed = Path.of(parts[++i]); }
+                case "--auto"  -> auto  = true;
+                case "--force" -> force = true;
+                default -> {
+                    if (feature == null && !parts[i].startsWith("--")) feature = parts[i];
+                }
+            }
+        }
+        if (feature == null) {
+            System.out.println(Ansi.yellow(
+                "Usage: create-feature <feature> [--seed <path>] [--auto] [--force]"));
+            return;
+        }
+
+        AgentConsole console = new AgentConsole(terminal);
+        LineReader chatReader = LineReaderBuilder.builder()
+            .terminal(terminal)
+            .variable(LineReader.HISTORY_FILE,
+                System.getProperty("user.home") + "/.aicompanion_history")
+            .option(LineReader.Option.HISTORY_IGNORE_DUPS,  true)
+            .option(LineReader.Option.HISTORY_IGNORE_SPACE, true)
+            .build();
+        UserInput chatInput = new JLineUserInput(chatReader);
+
+        LineReader gateReader = LineReaderBuilder.builder().terminal(terminal).build();
+        FeaturePipeline.GateAsker gate = new JLineGateAsker(gateReader);
+
+        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        SkillRunner runner = new SkillRunner(config, console, chatInput, loader);
+        FeaturePipeline.SkillInvoker invoker = runner::run;
+        FeaturePipeline pipeline = new FeaturePipeline(config, loader, invoker, gate);
+
+        Thread thread = Thread.currentThread();
+        SignalHandler previous = terminal.handle(Signal.INT, sig -> thread.interrupt());
+        try {
+            pipeline.run(feature, new FeaturePipeline.Options(auto, force, seed));
+        } catch (IOException e) {
+            System.err.println(Ansi.red("I/O error: " + e.getMessage()));
+        } catch (SkillLoadException e) {
+            System.err.println(Ansi.red(e.getMessage()));
+        } catch (RuntimeException e) {
+            if (Thread.interrupted()) System.out.println(Ansi.yellow("\nAborted."));
+            else System.err.println(Ansi.red("Error: " + e.getMessage()));
+        } finally {
+            terminal.handle(Signal.INT, previous);
+            Thread.interrupted();
         }
     }
 
@@ -413,6 +474,12 @@ public class Shell {
             new StringsCompleter(CONFIG_KEYS),
             NullCompleter.INSTANCE);
 
+        Completer createFeatureCompleter = new ArgumentCompleter(
+            new StringsCompleter("create-feature"),
+            NullCompleter.INSTANCE,
+            new StringsCompleter(CREATE_FEATURE_FLAGS),
+            NullCompleter.INSTANCE);
+
         // For each discovered skill: complete its flag names after the feature arg.
         List<Completer> skillCompleters = new ArrayList<>();
         for (SkillMetadata md : skills) {
@@ -427,6 +494,7 @@ public class Shell {
         all.add(topLevel);
         all.add(runCompleter);
         all.add(configSetCompleter);
+        all.add(createFeatureCompleter);
         all.addAll(skillCompleters);
         return new AggregateCompleter(all.toArray(new Completer[0]));
     }
