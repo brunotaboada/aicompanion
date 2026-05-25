@@ -17,7 +17,7 @@ public class Main {
         for (String arg : args) {
             if ("--version".equals(arg) || "-v".equals(arg)) { System.out.println("aicompanion 1.0.0"); return; }
             if ("--help".equals(arg)    || "-h".equals(arg)) {
-                System.out.println(Help.render(discoverSkillsQuietly()));
+                System.out.println(Help.cli(discoverSkillsQuietly()));
                 return;
             }
         }
@@ -26,6 +26,12 @@ public class Main {
         if (args.length >= 2 && "init".equals(args[0]) && "skills".equals(args[1])) {
             boolean force = args.length > 2 && "--force".equals(args[2]);
             runInitSkills(force);
+            return;
+        }
+
+        // aicompanion create-feature <feature> [--auto] [--force] [--seed <path>]
+        if (args.length > 0 && "create-feature".equals(args[0])) {
+            runCreateFeatureFromCli(args);
             return;
         }
 
@@ -92,6 +98,63 @@ public class Main {
             })
             .filter(java.util.Objects::nonNull)
             .toList();
+    }
+
+    /**
+     * Drive the full pipeline from {@code aicompanion create-feature <feature> ...}.
+     * Mirrors the REPL handler but with a fresh JLine terminal since there's no
+     * surrounding shell to borrow from.
+     */
+    private static void runCreateFeatureFromCli(String[] args) throws Exception {
+        String  feature = null;
+        Path    seed    = null;
+        boolean auto    = false;
+        boolean force   = false;
+        for (int i = 1; i < args.length; i++) {
+            switch (args[i]) {
+                case "--seed"  -> { if (i + 1 < args.length) seed = Path.of(args[++i]); }
+                case "--auto"  -> auto  = true;
+                case "--force" -> force = true;
+                default -> { if (feature == null && !args[i].startsWith("--")) feature = args[i]; }
+            }
+        }
+        if (feature == null) {
+            System.err.println(
+                "Usage: aicompanion create-feature <feature> [--seed <path>] [--auto] [--force]");
+            System.exit(2);
+            return;
+        }
+
+        Config config;
+        try {
+            config = ConfigLoader.load(java.util.Map.of());
+        } catch (IllegalArgumentException e) {
+            System.err.println("aicompanion: " + e.getMessage());
+            System.exit(2);
+            return;
+        }
+
+        Terminal terminal = TerminalBuilder.builder().system(true).build();
+        LineReader chatReader = LineReaderBuilder.builder().terminal(terminal).build();
+        UserInput chatInput = new JLineUserInput(chatReader);
+        AgentConsole console = new AgentConsole(terminal);
+        LineReader gateReader = LineReaderBuilder.builder().terminal(terminal).build();
+        FeaturePipeline.GateAsker gate = new JLineGateAsker(gateReader);
+
+        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        SkillRunner runner = new SkillRunner(config, console, chatInput, loader);
+        FeaturePipeline.SkillInvoker invoker = runner::run;
+        FeaturePipeline pipeline = new FeaturePipeline(config, loader, invoker, gate);
+
+        try {
+            pipeline.run(feature, new FeaturePipeline.Options(auto, force, seed));
+        } catch (SkillLoadException e) {
+            System.err.println("aicompanion: " + e.getMessage());
+            System.exit(2);
+        } catch (IOException e) {
+            System.err.println("aicompanion: I/O error — " + e.getMessage());
+            System.exit(1);
+        }
     }
 
     /**

@@ -160,6 +160,7 @@ public final class ChatLoop {
 
     private void printTokenCounter(long running) {
         if (running <= 0) return;
+        if (console != null) console.closeAgentGutter();
         System.out.println(Ansi.dim("[~" + formatTokens(running) + " tokens]"));
     }
 

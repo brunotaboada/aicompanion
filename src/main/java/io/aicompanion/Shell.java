@@ -473,7 +473,7 @@ public class Shell {
     }
 
     private void printHelp() {
-        System.out.println(Help.render(skills));
+        System.out.println(Help.repl(skills));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
