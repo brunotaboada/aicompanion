@@ -87,6 +87,116 @@ This decomposition-first approach gives you:
 
 ---
 
+## Skills: From Idea to Task Files (Interactive)
+
+Decomposing a feature by hand is the hard part. aicompanion ships three
+**interactive skill commands** that drive the agent through a structured
+conversation and produce the PRD, technical spec, and task files for you.
+
+```
+create-prd <feature>        →  features/<feature>/_prd.md       (+ adrs/adr-NNN.md)
+create-tech-spec <feature>  →  features/<feature>/_techspec.md  (+ adrs/adr-NNN.md)
+create-tasks <feature>      →  features/<feature>/_tasks.md     (+ tasks/task_NN.md)
+create-feature <feature>    →  runs the three above with review gates between
+```
+
+Each skill is a multi-turn chat. The agent asks one question at a time (in
+A/B/C/D multiple-choice format whenever the answer space is bounded); you
+answer in the shell; when the agent has enough, it produces the document
+and writes it to disk:
+
+```
+aicompanion> create-prd auth-system
+[1/1] create-prd auth-system  (model: opus)
+agent> Who are the primary users of this auth system?
+       A) End users signing into a web app
+       B) API consumers (other services)
+       C) Both
+       D) Other
+you> A
+agent> Got it. What's the main problem this solves for them today?
+you> Frequent unwanted logouts and slow password resets.
+...
+agent> [write] features/auth-system/_prd.md (3,847 chars)
+✓ Created features/auth-system/_prd.md
+```
+
+After `create-tasks` produces the task files, the existing `run` command
+executes them autonomously — closing the loop.
+
+### Chat sentinels
+
+While in a skill conversation, the `you>` prompt accepts these special inputs:
+
+| Sentinel | What it does |
+|---|---|
+| `/abort` | End the session immediately. No files written. |
+| `/done` | Tell the agent to wrap up: produce the file with what it has, or stop with a summary of what's still needed. |
+| `/skip` | Send "no preference, pick a reasonable default" — useful when a question doesn't matter to you. |
+| `/edit` | Open `$EDITOR` for a multi-line answer (for pasting requirements blocks, etc.). |
+
+### Skill flags
+
+| Flag | Effect |
+|---|---|
+| `--seed <path>` | Pre-existing notes (e.g., an RFC draft). If omitted, the skill auto-detects `features/<feature>/_idea.md`. |
+| `--model <name>` | One-shot model override. Beats `skills.<name>.model` from config. |
+
+### Per-skill model
+
+PRDs and tech specs reward heavier thinking; task decomposition is more
+mechanical. `.aicompanion.yml` lets you pin a different model per skill:
+
+```yaml
+model: sonnet                    # global default
+
+skills:
+  create-prd:        { model: opus }
+  create-tech-spec:  { model: opus }
+  create-tasks:      { model: sonnet }
+```
+
+Resolution priority: `--model` flag → `skills.<name>.model` → `AICOMPANION_SKILLS_<NAME>_MODEL` env var → global `model` → agent default.
+
+### The pipeline (`create-feature`)
+
+Drives all three skills back-to-back with a review gate after each step:
+
+```
+aicompanion> create-feature auth-system
+[1/3] create-prd auth-system
+  ...chat...
+  ✓ Created features/auth-system/_prd.md
+
+Continue to create-tech-spec? [Y]es / [e]dit _prd.md / [n]o
+> y
+
+[2/3] create-tech-spec auth-system
+  ...
+```
+
+- **Resumable**: if `_prd.md` already exists, step 1 is skipped automatically. Re-running picks up where you left off.
+- `--auto` skips the gates ("trust me, just go")
+- `--force` ignores existing outputs and re-runs every step
+- `--seed <path>` is forwarded to the first executed step only
+
+### Where skills live
+
+The three canonical bundles ship inside the JAR. On a fresh project, scaffold them with:
+
+```bash
+aicompanion init skills           # writes .agents/skills/ into cwd
+aicompanion init skills --force   # overwrite customised versions
+```
+
+Skills are then read from `.agents/skills/<name>/SKILL.md` (project root). Dynamic discovery means **any directory there with a `SKILL.md` becomes a shell command** — drop in `.agents/skills/create-runbook/SKILL.md` and `create-runbook` is now available, no Java edits required. Use `skills` to list and validate what's discovered.
+
+### Per-skill transcript
+
+Every chat turn is appended to `features/<feature>/_<skill>.transcript.md` (e.g., `_prd.transcript.md`). When a generated doc comes out wrong, the transcript shows exactly which question got which answer.
+
+---
+
 ## Features
 
 - **Agent-agnostic** — works with Claude Code, Codex, Gemini CLI, GitHub Copilot, OpenCode; auto-detects which is installed
@@ -96,7 +206,9 @@ This decomposition-first approach gives you:
 - **Summary output** — agents return a concise bullet-point summary of what they did, not the full code
 - **Interactive shell** — JLine3 REPL with history, tab completion, and runtime config updates
 - **One-shot mode** — scriptable non-interactive `run` command for CI/CD pipelines
-- **Fully configurable** — 16 settings, overridable via config file, environment variables, or CLI flags
+- **Interactive skills** — `create-prd`, `create-tech-spec`, `create-tasks`, plus the `create-feature` umbrella; dynamic discovery via `.agents/skills/`
+- **Per-skill model** — pin Opus for PRD/TechSpec and Sonnet for task decomposition (or any combination)
+- **Fully configurable** — settings overridable via config file, environment variables, or CLI flags
 - **Per-task logs** — timestamped Markdown summary written after each task
 
 ---
@@ -367,7 +479,17 @@ aicompanion> tasks                      List features and their tasks
 aicompanion> agents                     List installed AI agents
 aicompanion> config                     Show current configuration
 aicompanion> config set <key> <value>   Update a setting at runtime
-aicompanion> help                       Show help
+aicompanion> status                     Show pass/fail per task across runs
+aicompanion> reset                      Clear resume state
+
+aicompanion> create-prd <feature> [--seed <path>] [--model <name>]
+aicompanion> create-tech-spec <feature> [--seed <path>] [--model <name>]
+aicompanion> create-tasks <feature> [--seed <path>] [--model <name>]
+aicompanion> create-feature <feature> [--seed <path>] [--auto] [--force]
+aicompanion> skills                     List discovered skills, validate each
+aicompanion> init skills [--force]      Scaffold .agents/skills/ from bundled defaults
+
+aicompanion> help                       Show help (includes per-project skill list)
 aicompanion> exit                       Exit
 ```
 
@@ -423,22 +545,38 @@ The agent runs with full filesystem access via the client-side handlers. The `--
 
 ```
 aicompanion/
+├── .agents/skills/                Canonical skill bundles (also bundled in JAR)
+│   ├── create-prd/                SKILL.md + references/
+│   ├── create-tech-spec/          SKILL.md + references/
+│   └── create-tasks/              SKILL.md + references/
 ├── src/main/java/io/aicompanion/
-│   ├── Main.java                  Entry point (REPL or one-shot)
-│   ├── Shell.java                 JLine3 interactive REPL
+│   ├── Main.java                  Entry point (REPL, one-shot, or skill CLI)
+│   ├── Shell.java                 JLine3 interactive REPL + skill discovery
+│   ├── Help.java                  Help text (static + dynamic skill section)
 │   ├── TaskRunner.java            ACP session + lazy task execution loop
-│   ├── TaskStatus.java            Enum: PENDING, RUNNING, PASSED, FAILED, SKIPPED
 │   ├── TestVerifier.java          Runs test command, captures output
 │   ├── Reporter.java              Writes per-task Markdown summary logs
 │   ├── agent/
 │   │   ├── AgentSpec.java         Agent definitions (id, binary, params builder)
-│   │   └── AgentRegistry.java     Agent detection and resolution
-│   └── config/
-│       ├── Config.java            Immutable record of all 16 settings
-│       └── ConfigLoader.java      4-tier config loader (CLI > env > file > default)
+│   │   ├── AgentRegistry.java     Agent detection and resolution
+│   │   └── AcpClientFactory.java  Shared ACP client wiring (TaskRunner + SkillRunner)
+│   ├── config/
+│   │   ├── Config.java            Immutable record of settings + skills map + modelFor()
+│   │   └── ConfigLoader.java      4-tier config loader (CLI > env > file > default)
+│   └── skill/
+│       ├── Skill.java             Rendered skill (body + output path)
+│       ├── SkillLoader.java       Discovers / parses / renders SKILL.md
+│       ├── SkillRunner.java       Drives one skill end-to-end via ACP
+│       ├── ChatLoop.java          User ↔ agent turn loop + sentinels
+│       ├── Transcript.java        Per-skill chat log appended to disk
+│       ├── FeaturePipeline.java   Orchestrates create-prd → tech-spec → tasks
+│       ├── SkillScaffolder.java   `init skills` — copies JAR resources to disk
+│       └── JLineUserInput.java    JLine-backed user input adapter
 └── src/test/java/io/aicompanion/
-    ├── ConfigLoaderTest.java
-    └── TaskRunnerPathsTest.java
+    ├── ConfigLoaderTest.java, TaskRunnerPathsTest.java, ...
+    └── skill/
+        ├── SkillLoaderTest.java, ChatLoopTest.java, FeaturePipelineTest.java,
+        ├── SkillScaffolderTest.java, SkillRunnerTest.java, ...
 ```
 
 ---
