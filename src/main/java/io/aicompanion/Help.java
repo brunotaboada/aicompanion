@@ -16,12 +16,12 @@ public final class Help {
         if (!skills.isEmpty()) {
             skillSection.append("\n\nSkill commands (interactive — drive create-feature workflow):\n");
             for (SkillMetadata md : skills) {
-                skillSection.append(String.format("  %-22s %s%n",
+                skillSection.append(String.format("  %-28s %s%n",
                     md.name() + " <feature>", md.description()));
             }
-            skillSection.append("  create-feature <feature>  Runs every skill above in order with review gates.\n");
-            skillSection.append("  skills                    List discovered skills and validate each SKILL.md.\n");
-            skillSection.append("  init skills [--force]     Scaffold .agents/skills/ from the bundled defaults.\n");
+            skillSection.append("  create-feature <feature>     Runs every skill above in order with review gates.\n");
+            skillSection.append("  skills                       List discovered skills and validate each SKILL.md.\n");
+            skillSection.append("  init skills [--force]        Scaffold .agents/skills/ from the bundled defaults.\n");
             skillSection.append("\n  Skill flags:  --seed <path>   pre-existing notes to feed in\n");
             skillSection.append("                --model <name>   one-shot model override\n");
             // strip trailing newline so it concatenates cleanly
