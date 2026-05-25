@@ -22,6 +22,13 @@ public class Main {
             }
         }
 
+        // aicompanion init skills [--force]
+        if (args.length >= 2 && "init".equals(args[0]) && "skills".equals(args[1])) {
+            boolean force = args.length > 2 && "--force".equals(args[2]);
+            runInitSkills(force);
+            return;
+        }
+
         // Skill commands have the form: aicompanion <skill-name> <feature> [--seed ...] [--model ...]
         if (args.length > 0 && isSkillName(args[0])) {
             runSkillFromCli(args);
@@ -43,6 +50,23 @@ public class Main {
             new TaskRunner(config, parsed.runOptions()).run();
         } else {
             new Shell(config).start();
+        }
+    }
+
+    private static void runInitSkills(boolean force) {
+        try {
+            SkillScaffolder.Result r = new SkillScaffolder().scaffold(Path.of("."), force);
+            System.out.println("Scaffolded into .agents/skills/");
+            for (String name : r.created()) System.out.println("  ✓ created  " + name);
+            for (String name : r.skipped()) System.out.println("  ∙ skipped  " + name
+                + "  (already exists — use --force to overwrite)");
+            if (r.isEmpty()) {
+                System.err.println("aicompanion: no skills found on the classpath.");
+                System.exit(1);
+            }
+        } catch (Exception e) {
+            System.err.println("aicompanion: init failed — " + e.getMessage());
+            System.exit(1);
         }
     }
 

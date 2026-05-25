@@ -22,7 +22,7 @@ public class Shell {
 
     private static final List<String> BUILT_IN_COMMANDS = List.of(
         "run", "tasks", "agents", "config", "status", "reset",
-        "skills", "create-feature", "help", "?", "exit", "quit");
+        "skills", "create-feature", "init", "help", "?", "exit", "quit");
 
     private static final List<String> CREATE_FEATURE_FLAGS = List.of(
         "--seed", "--auto", "--force");
@@ -99,6 +99,7 @@ public class Shell {
                 case "reset"           -> handleReset(reader);
                 case "skills"          -> handleSkills();
                 case "create-feature"  -> handleCreateFeature(parts, terminal);
+                case "init"            -> handleInit(parts);
                 case "help", "?"       -> printHelp();
                 case "exit", "quit"    -> { System.out.println("Bye."); return; }
                 default -> {
@@ -182,6 +183,29 @@ public class Shell {
                 Ansi.green("✓"), md.name(), Ansi.dim(md.description()));
             System.out.printf("    %s%n",
                 Ansi.dim("output → <features_dir>/<feature>/" + md.outputRelativePath()));
+        }
+    }
+
+    private void handleInit(String[] parts) {
+        if (parts.length < 2 || !"skills".equals(parts[1])) {
+            System.out.println(Ansi.yellow("Usage: init skills [--force]"));
+            return;
+        }
+        boolean force = parts.length > 2 && "--force".equals(parts[2]);
+        try {
+            SkillScaffolder.Result r = new SkillScaffolder().scaffold(Path.of("."), force);
+            System.out.println("Scaffolded into " + Ansi.cyan(".agents/skills/"));
+            for (String name : r.created()) System.out.println("  " + Ansi.green("✓ created  ") + name);
+            for (String name : r.skipped()) System.out.println("  " + Ansi.yellow("∙ skipped  ") + name
+                + Ansi.dim("  (already exists — use --force to overwrite)"));
+            if (r.isEmpty()) {
+                System.out.println(Ansi.yellow("Nothing to scaffold — no skills found on the classpath."));
+            } else if (!r.created().isEmpty()) {
+                System.out.println();
+                System.out.println(Ansi.dim("Tip: restart the shell so the new skill commands appear in tab completion."));
+            }
+        } catch (Exception e) {
+            System.err.println(Ansi.red("Init failed: " + e.getMessage()));
         }
     }
 
@@ -480,6 +504,12 @@ public class Shell {
             new StringsCompleter(CREATE_FEATURE_FLAGS),
             NullCompleter.INSTANCE);
 
+        Completer initCompleter = new ArgumentCompleter(
+            new StringsCompleter("init"),
+            new StringsCompleter("skills"),
+            new StringsCompleter("--force"),
+            NullCompleter.INSTANCE);
+
         // For each discovered skill: complete its flag names after the feature arg.
         List<Completer> skillCompleters = new ArrayList<>();
         for (SkillMetadata md : skills) {
@@ -495,6 +525,7 @@ public class Shell {
         all.add(runCompleter);
         all.add(configSetCompleter);
         all.add(createFeatureCompleter);
+        all.add(initCompleter);
         all.addAll(skillCompleters);
         return new AggregateCompleter(all.toArray(new Completer[0]));
     }
