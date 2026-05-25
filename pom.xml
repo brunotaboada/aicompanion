@@ -74,6 +74,19 @@
     </dependencies>
 
     <build>
+        <!-- Bundle .agents/skills/ into the JAR at /skills/ so SkillScaffolder
+             can copy them out via `aicompanion init skills`. The runtime always
+             reads skills from .agents/skills/ in the project root; this resource
+             mapping only seeds the scaffolder source. -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>.agents/skills</directory>
+                <targetPath>skills</targetPath>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

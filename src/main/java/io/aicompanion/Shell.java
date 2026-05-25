@@ -277,22 +277,7 @@ public class Shell {
     }
 
     private void printHelp() {
-        System.out.println("""
-            Commands:
-              run [flags]             Execute all tasks (Tab to see flags)
-              tasks | status          List task files / show pass/fail per task
-              agents | config         Detected agents / current configuration
-              config set <key> <val>  Update a setting at runtime
-              reset                   Clear resume state (.aicompanion/state.yml)
-              help | exit             This help / quit
-
-            Keys:  Tab=complete  Ctrl+R=history  Ctrl+C=abort run  Ctrl+D=quit
-
-            Resume:  passed/failed tasks auto-skip on next `run`.
-                     --fresh wipes state; --retry-failed reruns only failures.
-
-            Overrides:  AICOMPANION_<KEY> env  |  .aicompanion.yml  |  --flag
-                        See README.md for full configuration reference.""");
+        System.out.println(Help.TEXT);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
