@@ -4,6 +4,7 @@ import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.config.Config;
 import io.aicompanion.config.ConfigLoader;
 import io.aicompanion.console.Ansi;
+import io.aicompanion.skill.*;
 import org.jline.reader.*;
 import org.jline.reader.impl.DefaultParser;
 import org.jline.reader.impl.completer.AggregateCompleter;
@@ -19,9 +20,9 @@ import java.util.*;
 
 public class Shell {
 
-    private static final List<String> COMMANDS = List.of(
+    private static final List<String> BUILT_IN_COMMANDS = List.of(
         "run", "tasks", "agents", "config", "status", "reset",
-        "help", "?", "exit", "quit");
+        "skills", "help", "?", "exit", "quit");
 
     private static final List<String> RUN_FLAGS = List.of(
         "--features", "--agent", "--model", "--project", "--test-command",
@@ -29,6 +30,8 @@ public class Shell {
         "--fresh", "--retry-failed",
         "--pre-check-tests", "--task-preamble-strip", "--init-instructions",
         "--compact-after", "--fix-output-lines", "--max-tokens", "--dry-run-tokens");
+
+    private static final List<String> SKILL_FLAGS = List.of("--seed", "--model");
 
     private static final List<String> CONFIG_KEYS = List.of(
         "agent", "model", "agent_extra_args", "features_dir",
@@ -40,12 +43,15 @@ public class Shell {
         "pre_check_tests", "max_tokens_per_run", "init_instructions");
 
     private Config config;
+    private List<SkillMetadata> skills = List.of();   // populated in start()
 
     public Shell(Config config) {
         this.config = config;
     }
 
     public void start() throws Exception {
+        skills = discoverSkillsWithReporting();
+
         Terminal terminal = TerminalBuilder.builder().system(true).build();
         LineReader reader = LineReaderBuilder.builder()
             .terminal(terminal)
@@ -88,12 +94,45 @@ public class Shell {
                 case "config"          -> handleConfig(parts);
                 case "status"          -> handleStatus();
                 case "reset"           -> handleReset(reader);
+                case "skills"          -> handleSkills();
                 case "help", "?"       -> printHelp();
                 case "exit", "quit"    -> { System.out.println("Bye."); return; }
-                default -> System.out.println(Ansi.yellow(
-                    "Unknown command: '" + parts[0] + "'. Type 'help'."));
+                default -> {
+                    if (isDiscoveredSkill(parts[0])) {
+                        handleSkillCommand(parts[0], parts, terminal);
+                    } else {
+                        System.out.println(Ansi.yellow(
+                            "Unknown command: '" + parts[0] + "'. Type 'help'."));
+                    }
+                }
             }
         }
+    }
+
+    // ── skill discovery ──────────────────────────────────────────────────────
+
+    private List<SkillMetadata> discoverSkillsWithReporting() {
+        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        List<SkillMetadata> found = new ArrayList<>();
+        try {
+            for (String name : loader.discover()) {
+                try {
+                    found.add(loader.describe(name));
+                } catch (SkillLoadException e) {
+                    System.err.println(Ansi.yellow(
+                        "[skill] '" + name + "' skipped — " + e.getMessage()));
+                }
+            }
+        } catch (IOException e) {
+            System.err.println(Ansi.yellow(
+                "[skill] could not scan " + SkillRunner.SKILLS_ROOT + ": " + e.getMessage()));
+        }
+        return List.copyOf(found);
+    }
+
+    private boolean isDiscoveredSkill(String name) {
+        for (SkillMetadata md : skills) if (md.name().equals(name)) return true;
+        return false;
     }
 
     // ── command handlers ─────────────────────────────────────────────────────
@@ -123,6 +162,71 @@ public class Shell {
         } finally {
             terminal.handle(Signal.INT, previous);
             // Clear any lingering interrupt status so the next readLine works.
+            Thread.interrupted();
+        }
+    }
+
+    private void handleSkills() {
+        if (skills.isEmpty()) {
+            System.out.println(Ansi.yellow("No skills found at " + SkillRunner.SKILLS_ROOT + "."));
+            System.out.println(Ansi.dim("Tip: run `init skills` to scaffold the canonical bundles."));
+            return;
+        }
+        System.out.println("Skills in " + Ansi.cyan(SkillRunner.SKILLS_ROOT.toString()) + ":");
+        for (SkillMetadata md : skills) {
+            System.out.printf("  %s %-22s %s%n",
+                Ansi.green("✓"), md.name(), Ansi.dim(md.description()));
+            System.out.printf("    %s%n",
+                Ansi.dim("output → <features_dir>/<feature>/" + md.outputRelativePath()));
+        }
+    }
+
+    private void handleSkillCommand(String skillName, String[] parts, Terminal terminal) {
+        SkillCommandArgs args = SkillCommandArgs.parse(parts, 1);
+        if (args.feature() == null) {
+            System.out.println(Ansi.yellow(
+                "Usage: " + skillName + " <feature> [--seed <path>] [--model <name>]"));
+            return;
+        }
+        runSkill(skillName, args, terminal);
+    }
+
+    /**
+     * Spin up a chat-friendly LineReader (no shell completer so {@code you>}
+     * doesn't try to autocomplete command names), wrap it as a
+     * {@link UserInput}, route Ctrl+C to the agent thread, and invoke the
+     * {@link SkillRunner}.
+     */
+    private void runSkill(String skillName, SkillCommandArgs args, Terminal terminal) {
+        LineReader chatReader = LineReaderBuilder.builder()
+            .terminal(terminal)
+            .variable(LineReader.HISTORY_FILE,
+                System.getProperty("user.home") + "/.aicompanion_history")
+            .variable(LineReader.HISTORY_SIZE,      5000)
+            .variable(LineReader.HISTORY_FILE_SIZE, 5000)
+            .option(LineReader.Option.HISTORY_IGNORE_DUPS,  true)
+            .option(LineReader.Option.HISTORY_IGNORE_SPACE, true)
+            .build();
+        UserInput input = new JLineUserInput(chatReader);
+        AgentConsole console = new AgentConsole(terminal);
+
+        Thread runner = Thread.currentThread();
+        SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
+        try {
+            new SkillRunner(config, console, input).run(
+                skillName, args.feature(), args.seed(), args.model());
+        } catch (IOException e) {
+            System.err.println(Ansi.red("I/O error: " + e.getMessage()));
+        } catch (SkillLoadException e) {
+            System.err.println(Ansi.red(e.getMessage()));
+        } catch (RuntimeException e) {
+            if (Thread.interrupted()) {
+                System.out.println(Ansi.yellow("\nAborted."));
+            } else {
+                System.err.println(Ansi.red("Error: " + e.getMessage()));
+            }
+        } finally {
+            terminal.handle(Signal.INT, previous);
             Thread.interrupted();
         }
     }
@@ -266,18 +370,25 @@ public class Shell {
         row("pre_check_tests",        String.valueOf(config.preCheckTests()));
         row("max_tokens_per_run",     String.valueOf(config.maxTokensPerRun()));
         row("init_instructions",      String.valueOf(config.initInstructions()));
+        if (!config.skills().isEmpty()) {
+            row("skills (per-model)", "");
+            for (Map.Entry<String, Config.SkillConfig> e : config.skills().entrySet()) {
+                row("  " + e.getKey(), "model = " + e.getValue().model());
+            }
+        }
     }
 
     private void printBanner() {
         System.out.println(Ansi.bold("aicompanion v1.0.0"));
         System.out.println(Ansi.dim("agent: ")
             + (config.agent() != null ? config.agent() : "auto-detect")
-            + Ansi.dim("  |  features: ") + config.featuresDir());
+            + Ansi.dim("  |  features: ") + config.featuresDir()
+            + Ansi.dim("  |  skills: ") + skills.size());
         System.out.println(Ansi.dim("Type 'help' for available commands. Tab completes.\n"));
     }
 
     private void printHelp() {
-        System.out.println(Help.TEXT);
+        System.out.println(Help.render(skills));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -287,7 +398,9 @@ public class Shell {
     }
 
     private Completer buildCompleter() {
-        Completer topLevel = new StringsCompleter(COMMANDS);
+        List<String> allCommands = new ArrayList<>(BUILT_IN_COMMANDS);
+        for (SkillMetadata md : skills) allCommands.add(md.name());
+        Completer topLevel = new StringsCompleter(allCommands);
 
         Completer runCompleter = new ArgumentCompleter(
             new StringsCompleter("run"),
@@ -300,7 +413,21 @@ public class Shell {
             new StringsCompleter(CONFIG_KEYS),
             NullCompleter.INSTANCE);
 
-        return new AggregateCompleter(topLevel, runCompleter, configSetCompleter);
-    }
+        // For each discovered skill: complete its flag names after the feature arg.
+        List<Completer> skillCompleters = new ArrayList<>();
+        for (SkillMetadata md : skills) {
+            skillCompleters.add(new ArgumentCompleter(
+                new StringsCompleter(md.name()),
+                NullCompleter.INSTANCE,             // feature name — user-supplied
+                new StringsCompleter(SKILL_FLAGS),
+                NullCompleter.INSTANCE));
+        }
 
+        List<Completer> all = new ArrayList<>();
+        all.add(topLevel);
+        all.add(runCompleter);
+        all.add(configSetCompleter);
+        all.addAll(skillCompleters);
+        return new AggregateCompleter(all.toArray(new Completer[0]));
+    }
 }
