@@ -1,3 +1,8 @@
+---
+description: Interactive brainstorming session that produces a Product Requirements Document for a feature.
+output: _prd.md
+---
+
 # create-prd
 
 You are running the `create-prd` skill. Produce a Product Requirements Document for the

@@ -1,3 +1,8 @@
+---
+description: Interactive technical clarification that turns a PRD into an implementation-ready Technical Specification.
+output: _techspec.md
+---
+
 # create-tech-spec
 
 You are running the `create-tech-spec` skill. Translate the PRD for the feature

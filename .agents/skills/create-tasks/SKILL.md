@@ -1,3 +1,8 @@
+---
+description: Decomposes a PRD and TechSpec into independently implementable task files for `run`.
+output: _tasks.md
+---
+
 # create-tasks
 
 You are running the `create-tasks` skill. Decompose the PRD and TechSpec for the
