@@ -22,8 +22,23 @@ public final class Help {
             skillSection.append("  create-feature <feature>     Runs every skill above in order with review gates.\n");
             skillSection.append("  skills                       List discovered skills and validate each SKILL.md.\n");
             skillSection.append("  init skills [--force]        Scaffold .agents/skills/ from the bundled defaults.\n");
-            skillSection.append("\n  Skill flags:  --seed <path>   pre-existing notes to feed in\n");
-            skillSection.append("                --model <name>   one-shot model override\n");
+            skillSection.append("\n  Per-skill flags (create-prd, create-tech-spec, create-tasks):\n");
+            skillSection.append("    --seed <path>           pre-existing notes file to feed into the conversation\n");
+            skillSection.append("    --model <name>          one-shot model override (beats skills.<name>.model)\n");
+            skillSection.append("\n  create-feature flags:\n");
+            skillSection.append("    --seed <path>           forwarded to the first step only\n");
+            skillSection.append("    --auto                  skip the review gates between steps\n");
+            skillSection.append("    --force                 ignore existing outputs and re-run every step\n");
+            skillSection.append("\n  Chat sentinels (typed at the `you>` prompt):\n");
+            skillSection.append("    /abort                  end the session immediately, no files written\n");
+            skillSection.append("    /done                   ask the agent to wrap up with what it has\n");
+            skillSection.append("    /skip                   relay as \"no preference, pick a default\"\n");
+            skillSection.append("    /edit                   open $EDITOR for a multi-line answer\n");
+            skillSection.append("\n  Per-skill model in .aicompanion.yml:\n");
+            skillSection.append("    skills:\n");
+            skillSection.append("      create-prd:        { model: opus }\n");
+            skillSection.append("      create-tech-spec:  { model: opus }\n");
+            skillSection.append("      create-tasks:      { model: sonnet }\n");
             // strip trailing newline so it concatenates cleanly
         }
         return """
