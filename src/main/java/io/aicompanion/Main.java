@@ -2,13 +2,43 @@ package io.aicompanion;
 
 import io.aicompanion.config.Config;
 import io.aicompanion.config.ConfigLoader;
+import io.aicompanion.skill.*;
+import org.jline.reader.LineReader;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.List;
 
 public class Main {
 
     public static void main(String[] args) throws Exception {
         for (String arg : args) {
             if ("--version".equals(arg) || "-v".equals(arg)) { System.out.println("aicompanion 1.0.0"); return; }
-            if ("--help".equals(arg)    || "-h".equals(arg)) { printUsage(); return; }
+            if ("--help".equals(arg)    || "-h".equals(arg)) {
+                System.out.println(Help.cli(discoverSkillsQuietly()));
+                return;
+            }
+        }
+
+        // aicompanion init skills [--force]
+        if (args.length >= 2 && "init".equals(args[0]) && "skills".equals(args[1])) {
+            boolean force = args.length > 2 && "--force".equals(args[2]);
+            runInitSkills(force);
+            return;
+        }
+
+        // aicompanion create-feature <feature> [--auto] [--force] [--seed <path>]
+        if (args.length > 0 && "create-feature".equals(args[0])) {
+            runCreateFeatureFromCli(args);
+            return;
+        }
+
+        // Skill commands have the form: aicompanion <skill-name> <feature> [--seed ...] [--model ...]
+        if (args.length > 0 && isSkillName(args[0])) {
+            runSkillFromCli(args);
+            return;
         }
 
         FlagParser.ParseResult parsed = FlagParser.parse(args, 0);
@@ -29,49 +59,142 @@ public class Main {
         }
     }
 
-    private static void printUsage() {
-        System.out.println("""
-            aicompanion 1.0.0 — AI SDLC task runner
+    private static void runInitSkills(boolean force) {
+        try {
+            SkillScaffolder.Result r = new SkillScaffolder().scaffold(Path.of("."), force);
+            System.out.println("Scaffolded into .agents/skills/");
+            for (String name : r.created()) System.out.println("  ✓ created  " + name);
+            for (String name : r.skipped()) System.out.println("  ∙ skipped  " + name
+                + "  (already exists — use --force to overwrite)");
+            if (r.isEmpty()) {
+                System.err.println("aicompanion: no skills found on the classpath.");
+                System.exit(1);
+            }
+        } catch (Exception e) {
+            System.err.println("aicompanion: init failed — " + e.getMessage());
+            System.exit(1);
+        }
+    }
 
-            Usage:
-              aicompanion                          Interactive shell (REPL)
-              aicompanion run [options]            Run all tasks non-interactively
+    private static boolean isSkillName(String name) {
+        for (SkillMetadata md : discoverSkillsQuietly()) {
+            if (md.name().equals(name)) return true;
+        }
+        return false;
+    }
 
-            Options:
-              --features <dir>          Features parent dir (default: features).
-                                        Each subdir must contain a tasks/ folder; the
-                                        runner iterates features alphabetically and
-                                        ships each feature's tasks in order.
-              --project <dir>           Project root for agent session (default: .)
-              --agent <id>              Agent: claude, codex, gemini, copilot, opencode
-              --test-command <cmd>      Override test command
-              --timeout <minutes>       ACP session timeout (default: 10)
-              --report-dir <dir>        Report output directory
-              --no-tests                Skip test verification
-              --no-stop-on-failure      Continue even if tests fail
-              --log-thoughts            Print agent reasoning to console
-              --no-yolo                 Do not pass --yolo to the agent
-              --no-reports              Do not write markdown logs
-              --fresh                   Clear .aicompanion/state.yml; run all tasks
-              --retry-failed            Resume but re-run previously failed tasks
+    private static List<SkillMetadata> discoverSkillsQuietly() {
+        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        List<String> names;
+        try {
+            names = loader.discover();
+        } catch (IOException e) {
+            return List.of();
+        }
+        return names.stream()
+            .map(n -> {
+                try { return loader.describe(n); }
+                catch (IOException | SkillLoadException e) { return null; }
+            })
+            .filter(java.util.Objects::nonNull)
+            .toList();
+    }
 
-            Token-saving:
-              --pre-check-tests         Run tests before each task; skip agent if green
-              --task-preamble-strip     Drop content before the first Markdown heading
-              --init-instructions       Send summary-format rules once per session
-              --compact-after <N>       Recycle ACP session every N tasks
-              --fix-output-lines <N>    Cap retry test output (default: 200; 0 = unbounded)
-              --max-tokens <N>          Stop the run once estimated tokens cross N
-              --dry-run-tokens          Estimate prompt tokens without invoking the agent
+    /**
+     * Drive the full pipeline from {@code aicompanion create-feature <feature> ...}.
+     * Mirrors the REPL handler but with a fresh JLine terminal since there's no
+     * surrounding shell to borrow from.
+     */
+    private static void runCreateFeatureFromCli(String[] args) throws Exception {
+        String  feature = null;
+        Path    seed    = null;
+        boolean auto    = false;
+        boolean force   = false;
+        for (int i = 1; i < args.length; i++) {
+            switch (args[i]) {
+                case "--seed"  -> { if (i + 1 < args.length) seed = Path.of(args[++i]); }
+                case "--auto"  -> auto  = true;
+                case "--force" -> force = true;
+                default -> { if (feature == null && !args[i].startsWith("--")) feature = args[i]; }
+            }
+        }
+        if (feature == null) {
+            System.err.println(
+                "Usage: aicompanion create-feature <feature> [--seed <path>] [--auto] [--force]");
+            System.exit(2);
+            return;
+        }
 
-              --version | -v            Print version
-              --help | -h               Print this help
+        Config config;
+        try {
+            config = ConfigLoader.load(java.util.Map.of());
+        } catch (IllegalArgumentException e) {
+            System.err.println("aicompanion: " + e.getMessage());
+            System.exit(2);
+            return;
+        }
 
-            Environment variables:
-              AICOMPANION_AGENT, AICOMPANION_TASKS_DIR, AICOMPANION_PROJECT_DIR, ...
-              (AICOMPANION_<KEY> for any config key)
+        Terminal terminal = TerminalBuilder.builder().system(true).build();
+        LineReader chatReader = LineReaderBuilder.builder().terminal(terminal).build();
+        UserInput chatInput = new JLineUserInput(chatReader);
+        AgentConsole console = new AgentConsole(terminal);
+        LineReader gateReader = LineReaderBuilder.builder().terminal(terminal).build();
+        FeaturePipeline.GateAsker gate = new JLineGateAsker(gateReader);
 
-            Config file: .aicompanion.yml in the current directory
-            See PLAN.md for full configuration reference.""");
+        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        SkillRunner runner = new SkillRunner(config, console, chatInput, loader);
+        FeaturePipeline.SkillInvoker invoker = runner::run;
+        FeaturePipeline pipeline = new FeaturePipeline(config, loader, invoker, gate);
+
+        try {
+            pipeline.run(feature, new FeaturePipeline.Options(auto, force, seed));
+        } catch (SkillLoadException e) {
+            System.err.println("aicompanion: " + e.getMessage());
+            System.exit(2);
+        } catch (IOException e) {
+            System.err.println("aicompanion: I/O error — " + e.getMessage());
+            System.exit(1);
+        }
+    }
+
+    /**
+     * Drive a skill from {@code aicompanion <skill> <feature> [...]}. Builds a
+     * dedicated JLine terminal + reader since there is no surrounding shell to
+     * share with.
+     */
+    private static void runSkillFromCli(String[] args) throws Exception {
+        String skillName = args[0];
+        SkillCommandArgs parsed = SkillCommandArgs.parse(args, 1);
+        if (parsed.feature() == null) {
+            System.err.println("Usage: aicompanion " + skillName
+                + " <feature> [--seed <path>] [--model <name>]");
+            System.exit(2);
+            return;
+        }
+
+        Config config;
+        try {
+            config = ConfigLoader.load(java.util.Map.of());
+        } catch (IllegalArgumentException e) {
+            System.err.println("aicompanion: " + e.getMessage());
+            System.exit(2);
+            return;
+        }
+
+        Terminal terminal = TerminalBuilder.builder().system(true).build();
+        LineReader reader = LineReaderBuilder.builder().terminal(terminal).build();
+        UserInput input = new JLineUserInput(reader);
+        AgentConsole console = new AgentConsole(terminal);
+
+        try {
+            new SkillRunner(config, console, input).run(
+                skillName, parsed.feature(), parsed.seed(), parsed.model());
+        } catch (SkillLoadException e) {
+            System.err.println("aicompanion: " + e.getMessage());
+            System.exit(2);
+        } catch (IOException e) {
+            System.err.println("aicompanion: I/O error — " + e.getMessage());
+            System.exit(1);
+        }
     }
 }
