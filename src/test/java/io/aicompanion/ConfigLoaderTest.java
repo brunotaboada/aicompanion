@@ -119,4 +119,80 @@ class ConfigLoaderTest {
         assertEquals(100000, cfg.maxTokensPerRun());
         assertTrue(cfg.initInstructions());
     }
+
+    @Test
+    void skillsMapIsEmptyByDefault() {
+        Config cfg = ConfigLoader.load(Map.of(), Map.of());
+        assertNotNull(cfg.skills());
+        assertTrue(cfg.skills().isEmpty());
+    }
+
+    @Test
+    void skillsFromYamlAreParsed() {
+        Map<String, Object> file = Map.of(
+            "skills", Map.of(
+                "create-prd",       Map.of("model", "opus"),
+                "create-tech-spec", Map.of("model", "opus"),
+                "create-tasks",     Map.of("model", "sonnet")
+            )
+        );
+        Config cfg = ConfigLoader.load(Map.of(), file);
+        assertEquals("opus",   cfg.skills().get("create-prd").model());
+        assertEquals("opus",   cfg.skills().get("create-tech-spec").model());
+        assertEquals("sonnet", cfg.skills().get("create-tasks").model());
+    }
+
+    @Test
+    void envVarOverridesSkillModelFromFile() {
+        Map<String, Object> file = Map.of(
+            "skills", Map.of("create-prd", Map.of("model", "sonnet"))
+        );
+        Map<String, String> env = Map.of(
+            "AICOMPANION_SKILLS_CREATE_PRD_MODEL", "opus"
+        );
+        Config cfg = ConfigLoader.load(Map.of(), file, env);
+        assertEquals("opus", cfg.skills().get("create-prd").model());
+    }
+
+    @Test
+    void envVarAddsSkillWhenNoneInFile() {
+        Map<String, String> env = Map.of(
+            "AICOMPANION_SKILLS_CREATE_TASKS_MODEL", "haiku"
+        );
+        Config cfg = ConfigLoader.load(Map.of(), Map.of(), env);
+        assertEquals("haiku", cfg.skills().get("create-tasks").model());
+    }
+
+    @Test
+    void modelForUsesSkillOverrideWhenPresent() {
+        Map<String, Object> file = Map.of(
+            "model", "sonnet",
+            "skills", Map.of("create-prd", Map.of("model", "opus"))
+        );
+        Config cfg = ConfigLoader.load(Map.of(), file);
+        assertEquals("opus",   cfg.modelFor("create-prd"));
+        assertEquals("sonnet", cfg.modelFor("create-tasks"));   // falls back to global
+    }
+
+    @Test
+    void modelForFallsBackToGlobalWhenSkillUnconfigured() {
+        Config cfg = ConfigLoader.load(Map.of("model", "sonnet"), Map.of());
+        assertEquals("sonnet", cfg.modelFor("anything"));
+    }
+
+    @Test
+    void modelForReturnsNullWhenNothingSet() {
+        Config cfg = ConfigLoader.load(Map.of(), Map.of());
+        assertNull(cfg.modelFor("create-prd"));
+    }
+
+    @Test
+    void modelForFallsBackToGlobalWhenSkillEntryHasBlankModel() {
+        Map<String, Object> file = Map.of(
+            "model", "sonnet",
+            "skills", Map.of("create-prd", Map.of("model", ""))
+        );
+        Config cfg = ConfigLoader.load(Map.of(), file);
+        assertEquals("sonnet", cfg.modelFor("create-prd"));
+    }
 }

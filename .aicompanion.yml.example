@@ -8,6 +8,16 @@
 #                      # matched flexibly: "sonnet" → "claude-sonnet-4-6", "opus" → "claude-opus-4-7", etc.
 # agent_extra_args: [] # extra CLI args appended to the agent command
 
+# ── Per-skill model overrides ───────────────────────────────────────────────
+# Used by the interactive create-prd / create-tech-spec / create-tasks commands
+# (not by `run`). Override-priority: command-line --model > skills.<name>.model >
+# AICOMPANION_SKILLS_<NAME>_MODEL env var > global `model` above > agent default.
+#
+# skills:
+#   create-prd:        { model: opus }     # high-leverage thinking — pay for opus
+#   create-tech-spec:  { model: opus }
+#   create-tasks:      { model: sonnet }   # mechanical decomposition — sonnet is fine
+
 features_dir: features        # parent dir of feature subfolders, each with a tasks/ child.
                               #   features/<feature-name>/tasks/01-task.md
                               # The runner iterates every feature alphabetically and ships
