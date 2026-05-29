@@ -31,6 +31,17 @@ public record Config(
     Map<String, SkillConfig> skills
 ) {
 
+    /** All settable config keys, in display order. Single source of truth for shells and completers. */
+    public static final List<String> KEYS = List.of(
+        "agent", "model", "agent_extra_args", "features_dir",
+        "task_extensions", "task_sort", "project_dir", "test_command",
+        "test_enabled", "stop_on_failure", "max_fix_attempts", "session_timeout_min",
+        "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
+        "log_thoughts", "yolo",
+        "fix_output_max_lines", "task_preamble_strip", "compact_after_n_tasks",
+        "pre_check_tests", "max_tokens_per_run", "init_instructions"
+    );
+
     /** Per-skill overrides. Room to grow beyond {@code model} as new tunables appear. */
     public record SkillConfig(String model) {}
 

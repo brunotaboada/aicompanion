@@ -36,17 +36,13 @@ public class Shell {
 
     private static final List<String> SKILL_FLAGS = List.of("--seed", "--model");
 
-    private static final List<String> CONFIG_KEYS = List.of(
-        "agent", "model", "agent_extra_args", "features_dir",
-        "task_extensions", "task_sort", "project_dir", "test_command",
-        "test_enabled", "stop_on_failure", "max_fix_attempts", "session_timeout_min",
-        "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
-        "log_thoughts", "yolo",
-        "fix_output_max_lines", "task_preamble_strip", "compact_after_n_tasks",
-        "pre_check_tests", "max_tokens_per_run", "init_instructions");
+    // CONFIG_KEYS moved to Config.KEYS — single source of truth.
 
     private Config config;
     private List<SkillMetadata> skills = List.of();   // populated in start()
+
+    /** Accumulated `config set` overrides — survives across multiple set commands. */
+    private final Map<String, String> runtimeOverrides = new LinkedHashMap<>();
 
     public Shell(Config config) {
         this.config = config;
@@ -89,7 +85,16 @@ public class Shell {
             }
             if (line.isEmpty()) continue;
 
-            String[] parts = line.split("\\s+");
+            String[] parts;
+            try {
+                List<String> words = reader.getParser().parse(line, line.length()).words()
+                    .stream().filter(w -> !w.isEmpty()).toList();
+                if (words.isEmpty()) continue;
+                parts = words.toArray(new String[0]);
+            } catch (SyntaxError e) {
+                System.out.println(Ansi.yellow("Syntax error: " + e.getMessage()));
+                continue;
+            }
             switch (parts[0]) {
                 case "run"             -> handleRun(parts, terminal);
                 case "tasks"           -> handleTasks();
@@ -162,7 +167,7 @@ public class Shell {
             if (Thread.interrupted()) {
                 System.out.println(Ansi.yellow("\nAborted."));
             } else {
-                System.err.println(Ansi.red("Error: " + e.getMessage()));
+                System.err.println(Ansi.red("Error: " + msg(e)));
             }
         } finally {
             terminal.handle(Signal.INT, previous);
@@ -232,14 +237,7 @@ public class Shell {
         }
 
         AgentConsole console = new AgentConsole(terminal);
-        LineReader chatReader = LineReaderBuilder.builder()
-            .terminal(terminal)
-            .variable(LineReader.HISTORY_FILE,
-                System.getProperty("user.home") + "/.aicompanion_history")
-            .option(LineReader.Option.HISTORY_IGNORE_DUPS,  true)
-            .option(LineReader.Option.HISTORY_IGNORE_SPACE, true)
-            .build();
-        UserInput chatInput = new JLineUserInput(chatReader);
+        UserInput chatInput = new JLineUserInput(buildChatReader(terminal));
 
         LineReader gateReader = LineReaderBuilder.builder().terminal(terminal).build();
         FeaturePipeline.GateAsker gate = new JLineGateAsker(gateReader);
@@ -259,7 +257,7 @@ public class Shell {
             System.err.println(Ansi.red(e.getMessage()));
         } catch (RuntimeException e) {
             if (Thread.interrupted()) System.out.println(Ansi.yellow("\nAborted."));
-            else System.err.println(Ansi.red("Error: " + e.getMessage()));
+            else System.err.println(Ansi.red("Error: " + msg(e)));
         } finally {
             terminal.handle(Signal.INT, previous);
             Thread.interrupted();
@@ -283,16 +281,7 @@ public class Shell {
      * {@link SkillRunner}.
      */
     private void runSkill(String skillName, SkillCommandArgs args, Terminal terminal) {
-        LineReader chatReader = LineReaderBuilder.builder()
-            .terminal(terminal)
-            .variable(LineReader.HISTORY_FILE,
-                System.getProperty("user.home") + "/.aicompanion_history")
-            .variable(LineReader.HISTORY_SIZE,      5000)
-            .variable(LineReader.HISTORY_FILE_SIZE, 5000)
-            .option(LineReader.Option.HISTORY_IGNORE_DUPS,  true)
-            .option(LineReader.Option.HISTORY_IGNORE_SPACE, true)
-            .build();
-        UserInput input = new JLineUserInput(chatReader);
+        UserInput input = new JLineUserInput(buildChatReader(terminal));
         AgentConsole console = new AgentConsole(terminal);
 
         Thread runner = Thread.currentThread();
@@ -308,7 +297,7 @@ public class Shell {
             if (Thread.interrupted()) {
                 System.out.println(Ansi.yellow("\nAborted."));
             } else {
-                System.err.println(Ansi.red("Error: " + e.getMessage()));
+                System.err.println(Ansi.red("Error: " + msg(e)));
             }
         } finally {
             terminal.handle(Signal.INT, previous);
@@ -422,7 +411,8 @@ public class Shell {
         } else if (parts.length >= 4 && "set".equals(parts[1])) {
             String key = parts[2];
             String val = String.join(" ", Arrays.copyOfRange(parts, 3, parts.length));
-            config = ConfigLoader.load(Map.of(key, val));
+            runtimeOverrides.put(key, val);
+            config = ConfigLoader.load(runtimeOverrides);
             System.out.println(Ansi.green("Set ") + key + " = " + val);
         } else {
             System.out.println("Usage: config  |  config set <key> <value>");
@@ -495,7 +485,7 @@ public class Shell {
         Completer configSetCompleter = new ArgumentCompleter(
             new StringsCompleter("config"),
             new StringsCompleter("set"),
-            new StringsCompleter(CONFIG_KEYS),
+            new StringsCompleter(Config.KEYS),
             NullCompleter.INSTANCE);
 
         Completer createFeatureCompleter = new ArgumentCompleter(
@@ -528,5 +518,24 @@ public class Shell {
         all.add(initCompleter);
         all.addAll(skillCompleters);
         return new AggregateCompleter(all.toArray(new Completer[0]));
+    }
+
+    /** Chat-history LineReader for skill and create-feature sessions. */
+    private static LineReader buildChatReader(Terminal terminal) {
+        return LineReaderBuilder.builder()
+            .terminal(terminal)
+            .variable(LineReader.HISTORY_FILE,
+                System.getProperty("user.home") + "/.aicompanion_history")
+            .variable(LineReader.HISTORY_SIZE,      5000)
+            .variable(LineReader.HISTORY_FILE_SIZE, 5000)
+            .option(LineReader.Option.HISTORY_IGNORE_DUPS,  true)
+            .option(LineReader.Option.HISTORY_IGNORE_SPACE, true)
+            .build();
+    }
+
+    /** Null-safe exception message — avoids "Error: null" on exceptions with no detail text. */
+    private static String msg(Throwable e) {
+        String m = e.getMessage();
+        return m != null ? m : e.getClass().getSimpleName();
     }
 }

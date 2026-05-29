@@ -508,51 +508,18 @@ public class TaskRunner {
             return;
         }
         String want = config.model().trim();
-        ModelInfo match = findModel(modelState.availableModels(), want);
+        ModelInfo match = AgentRegistry.findModel(modelState.availableModels(), want);
         if (match == null) {
             System.out.println("[model] no match for '" + want + "'. Available: "
                 + modelState.availableModels().stream()
-                    .map(TaskRunner::modelLabel).toList());
+                    .map(AgentRegistry::modelLabel).toList());
             return;
         }
         if (match.modelId().equals(modelState.currentModelId())) {
-            System.out.println("[model] using " + modelLabel(match) + " (already active)");
+            System.out.println("[model] using " + AgentRegistry.modelLabel(match) + " (already active)");
             return;
         }
         client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
-        System.out.println("[model] switched to " + modelLabel(match));
-    }
-
-    /** Render "{id} ({name})" — or just the id if no human name is available. */
-    static String modelLabel(ModelInfo m) {
-        String id   = m.modelId();
-        String name = m.name();
-        if (name == null || name.isBlank() || name.equalsIgnoreCase(id)) return id;
-        return id + " (" + name + ")";
-    }
-
-    /**
-     * Resolve a user-supplied model token against the agent's advertised list.
-     * Priority: exact id → exact name → partial match (most specific id wins).
-     */
-    static ModelInfo findModel(List<ModelInfo> models, String want) {
-        String w = want.toLowerCase().trim();
-        for (ModelInfo m : models) {
-            if (m.modelId().equalsIgnoreCase(want)) return m;
-        }
-        for (ModelInfo m : models) {
-            if (m.name() != null && m.name().equalsIgnoreCase(want)) return m;
-        }
-        ModelInfo best = null;
-        for (ModelInfo m : models) {
-            String id   = m.modelId().toLowerCase();
-            String name = m.name() == null ? "" : m.name().toLowerCase();
-            if (id.contains(w) || name.contains(w)) {
-                if (best == null || m.modelId().length() > best.modelId().length()) {
-                    best = m;
-                }
-            }
-        }
-        return best;
+        System.out.println("[model] switched to " + AgentRegistry.modelLabel(match));
     }
 }

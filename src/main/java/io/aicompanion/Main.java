@@ -47,7 +47,7 @@ public class Main {
         try {
             config = ConfigLoader.load(parsed.configOverrides());
         } catch (IllegalArgumentException e) {
-            System.err.println("aicompanion: " + e.getMessage());
+            System.err.println("aicompanion: " + msg(e));
             System.exit(2);
             return;
         }
@@ -129,17 +129,15 @@ public class Main {
         try {
             config = ConfigLoader.load(java.util.Map.of());
         } catch (IllegalArgumentException e) {
-            System.err.println("aicompanion: " + e.getMessage());
+            System.err.println("aicompanion: " + msg(e));
             System.exit(2);
             return;
         }
 
-        Terminal terminal = TerminalBuilder.builder().system(true).build();
-        LineReader chatReader = LineReaderBuilder.builder().terminal(terminal).build();
-        UserInput chatInput = new JLineUserInput(chatReader);
+        Terminal terminal = buildTerminal();
+        UserInput chatInput = new JLineUserInput(LineReaderBuilder.builder().terminal(terminal).build());
         AgentConsole console = new AgentConsole(terminal);
-        LineReader gateReader = LineReaderBuilder.builder().terminal(terminal).build();
-        FeaturePipeline.GateAsker gate = new JLineGateAsker(gateReader);
+        FeaturePipeline.GateAsker gate = new JLineGateAsker(LineReaderBuilder.builder().terminal(terminal).build());
 
         SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
         SkillRunner runner = new SkillRunner(config, console, chatInput, loader);
@@ -149,10 +147,10 @@ public class Main {
         try {
             pipeline.run(feature, new FeaturePipeline.Options(auto, force, seed));
         } catch (SkillLoadException e) {
-            System.err.println("aicompanion: " + e.getMessage());
+            System.err.println("aicompanion: " + msg(e));
             System.exit(2);
         } catch (IOException e) {
-            System.err.println("aicompanion: I/O error — " + e.getMessage());
+            System.err.println("aicompanion: I/O error — " + msg(e));
             System.exit(1);
         }
     }
@@ -176,25 +174,33 @@ public class Main {
         try {
             config = ConfigLoader.load(java.util.Map.of());
         } catch (IllegalArgumentException e) {
-            System.err.println("aicompanion: " + e.getMessage());
+            System.err.println("aicompanion: " + msg(e));
             System.exit(2);
             return;
         }
 
-        Terminal terminal = TerminalBuilder.builder().system(true).build();
-        LineReader reader = LineReaderBuilder.builder().terminal(terminal).build();
-        UserInput input = new JLineUserInput(reader);
+        Terminal terminal = buildTerminal();
+        UserInput input = new JLineUserInput(LineReaderBuilder.builder().terminal(terminal).build());
         AgentConsole console = new AgentConsole(terminal);
 
         try {
             new SkillRunner(config, console, input).run(
                 skillName, parsed.feature(), parsed.seed(), parsed.model());
         } catch (SkillLoadException e) {
-            System.err.println("aicompanion: " + e.getMessage());
+            System.err.println("aicompanion: " + msg(e));
             System.exit(2);
         } catch (IOException e) {
-            System.err.println("aicompanion: I/O error — " + e.getMessage());
+            System.err.println("aicompanion: I/O error — " + msg(e));
             System.exit(1);
         }
+    }
+
+    private static Terminal buildTerminal() throws IOException {
+        return TerminalBuilder.builder().system(true).build();
+    }
+
+    private static String msg(Throwable e) {
+        String m = e.getMessage();
+        return m != null ? m : e.getClass().getSimpleName();
     }
 }
