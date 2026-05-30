@@ -53,12 +53,21 @@ public final class AcpClientFactory {
                         && config.logThoughts()) {
                     console.logEvent(Ansi.dim("[working] "
                         + ((TextContent) thought.content()).text().trim()));
-                } else if (update instanceof ToolCall tc
-                        && config.logToolCalls()) {
-                    console.logEvent(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
-                } else if (update instanceof ToolCallUpdateNotification tcu
-                        && config.logToolCalls()) {
-                    console.logEvent(Ansi.dim("[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
+                } else if (update instanceof ToolCall tc) {
+                    // A tool call ends the current text block; mark a break so the
+                    // next text block doesn't glue onto the previous one on screen
+                    // or in the transcript. Done regardless of tool-call logging.
+                    console.markTextBlockBreak();
+                    if (config.logToolCalls()) {
+                        console.logEvent(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
+                    }
+                } else if (update instanceof ToolCallUpdateNotification tcu) {
+                    // Some agents only emit update notifications (no initial
+                    // ToolCall); mark the break here too. Idempotent.
+                    console.markTextBlockBreak();
+                    if (config.logToolCalls()) {
+                        console.logEvent(Ansi.dim("[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
+                    }
                 }
             })
 

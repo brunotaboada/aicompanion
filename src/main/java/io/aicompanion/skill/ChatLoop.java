@@ -91,6 +91,13 @@ public final class ChatLoop {
 
             String trimmed = line.trim();
 
+            // A bare Enter yields an empty line. Shipping "" to the agent
+            // produces an empty text block, which the Claude API rejects with
+            // "cache_control cannot be set for empty text blocks". Re-prompt.
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+
             if ("/abort".equals(trimmed)) {
                 return finish(Outcome.ABORTED, running);
             }
@@ -111,8 +118,8 @@ public final class ChatLoop {
                     System.err.println(Ansi.yellow("[edit] " + e.getMessage() + " — try again."));
                     continue;
                 }
-                if (edited == null) {
-                    System.out.println(Ansi.dim("[edit] cancelled — try again."));
+                if (edited == null || edited.isBlank()) {
+                    System.out.println(Ansi.dim("[edit] empty — nothing sent, try again."));
                     continue;
                 }
                 toSend = edited;

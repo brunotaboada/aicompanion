@@ -34,6 +34,14 @@ public final class AgentConsole {
         new AtomicReference<>(new StringBuilder());
     private final AtomicReference<Spinner> activeSpinner = new AtomicReference<>();
 
+    // Set when a tool call interrupts the agent's text so the next chunk that
+    // starts a fresh text block is separated from the previous one. Without it,
+    // "…working with." and "Let me check…" glue into "…working with.Let me…"
+    // both in the transcript (summary buffer) and on screen (live render),
+    // because the renderer holds an unflushed word across the block boundary.
+    private volatile boolean summaryBreakPending = false;
+    private volatile boolean renderBreakPending  = false;
+
     private volatile boolean agentLineStart  = true;
     private volatile boolean hiddenLineStart = true;
 
@@ -61,6 +69,8 @@ public final class AgentConsole {
 
     public void resetSummary() {
         summaryBuf.set(new StringBuilder());
+        summaryBreakPending = false;
+        renderBreakPending  = false;
         agentLineStart = true;
         visualCol      = 0;
         atLineStart    = true;
@@ -73,17 +83,42 @@ public final class AgentConsole {
         return summaryBuf.get().toString();
     }
 
+    /**
+     * Signal that a tool call interrupted the agent's text. The next agent
+     * chunk begins a new text block; both the summary buffer and the live
+     * render insert a separating space so the blocks don't run together
+     * (e.g. "…relevant files." + "Let me start…" → "…files. Let me start…").
+     */
+    public void markTextBlockBreak() {
+        if (summaryBuf.get().length() > 0) {
+            summaryBreakPending = true;
+            renderBreakPending  = true;
+        }
+    }
+
+    /** Append agent text to the summary buffer, honouring a pending block break. */
+    private void appendSummary(String text) {
+        StringBuilder buf = summaryBuf.get();
+        if (summaryBreakPending) {
+            summaryBreakPending = false;
+            boolean bufEndsClean   = buf.length() > 0 && !Character.isWhitespace(buf.charAt(buf.length() - 1));
+            boolean textStartsWord = !text.isEmpty() && !Character.isWhitespace(text.charAt(0));
+            if (bufEndsClean && textStartsWord) buf.append(' ');
+        }
+        buf.append(text);
+    }
+
     // ── streaming output ──────────────────────────────────────────────────────
 
     public void printAgentChunk(String text) {
         if (terminal == null || outputMode == null) {
-            summaryBuf.get().append(text);
+            appendSummary(text);
             stopActiveSpinner();
             renderToStdout(text);
             return;
         }
         synchronized (outputLock) {
-            summaryBuf.get().append(text);
+            appendSummary(text);
             if (outputMode == OutputMode.HIDDEN) {
                 for (int i = 0; i < text.length(); i++) {
                     char c = text.charAt(i);
@@ -111,13 +146,31 @@ public final class AgentConsole {
      * lives on the instance.
      */
     private void renderToStdout(String text) {
+        boolean textStartsWord = !text.isEmpty() && !Character.isWhitespace(text.charAt(0));
+
         if (!Ansi.enabled()) {
+            // A tool call split two text blocks: separate them with a space
+            // unless the previous block ended a line or this one starts blank.
+            if (renderBreakPending) {
+                renderBreakPending = false;
+                if (!agentLineStart && textStartsWord) System.out.print(' ');
+            }
             System.out.print(text);
             agentLineStart = text.endsWith("\n");
             return;
         }
         int width = contentWidth();
         StringBuilder out = new StringBuilder(text.length() + 16);
+        // Honour a pending block break: flush the word held over from the prior
+        // block, then emit a separating space so it doesn't glue to this one.
+        if (renderBreakPending) {
+            renderBreakPending = false;
+            flushWord(out, width);
+            if (!agentLineStart && visualCol > 0 && visualCol < width && textStartsWord) {
+                out.append(' ');
+                visualCol++;
+            }
+        }
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
             if (c == '\n') {

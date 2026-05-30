@@ -189,7 +189,7 @@ public final class SkillRunner {
             System.out.println(Ansi.dim("[model] agent advertised no models — ignoring '" + want + "'"));
             return;
         }
-        ModelInfo match = findModel(modelState.availableModels(), want);
+        ModelInfo match = AgentRegistry.findModel(modelState.availableModels(), want);
         if (match == null) {
             System.out.println(Ansi.dim("[model] no match for '" + want + "' — staying on default"));
             return;
@@ -200,20 +200,5 @@ public final class SkillRunner {
         }
         client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
         System.out.println(Ansi.dim("[model] switched to " + match.modelId()));
-    }
-
-    static ModelInfo findModel(List<ModelInfo> models, String want) {
-        String w = want.toLowerCase().trim();
-        for (ModelInfo m : models) if (m.modelId().equalsIgnoreCase(want)) return m;
-        for (ModelInfo m : models) if (m.name() != null && m.name().equalsIgnoreCase(want)) return m;
-        ModelInfo best = null;
-        for (ModelInfo m : models) {
-            String id   = m.modelId().toLowerCase();
-            String name = m.name() == null ? "" : m.name().toLowerCase();
-            if (id.contains(w) || name.contains(w)) {
-                if (best == null || m.modelId().length() > best.modelId().length()) best = m;
-            }
-        }
-        return best;
     }
 }
