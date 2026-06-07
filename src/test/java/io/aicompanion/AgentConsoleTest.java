@@ -102,4 +102,59 @@ class AgentConsoleTest {
     void hasToggleReturnsFalseWithoutTerminal() {
         assertFalse(console.hasToggle());
     }
+
+    // ── wrapPlain (frame width safety) ─────────────────────────────────────────
+
+    @Test
+    void wrapPlainKeepsShortLineIntact() {
+        var lines = AgentConsole.wrapPlain("hello world", 40);
+        assertEquals(1, lines.size());
+        assertEquals("hello world", lines.get(0));
+    }
+
+    @Test
+    void wrapPlainSoftWrapsAtSpaces() {
+        var lines = AgentConsole.wrapPlain("alpha beta gamma", 11);
+        // "alpha beta" = 10 cols fits; "gamma" wraps.
+        assertEquals(2, lines.size());
+        assertEquals("alpha beta", lines.get(0));
+        assertEquals("gamma", lines.get(1));
+    }
+
+    @Test
+    void wrapPlainNeverExceedsWidth() {
+        String longCmd = "grep -E pattern /Users/someone/IdeaProjects/aicompanion2/src/main/java/io/aicompanion/**/*.java";
+        for (String l : AgentConsole.wrapPlain(longCmd, 30)) {
+            assertTrue(l.length() <= 30, "line exceeded width: <" + l + ">");
+        }
+    }
+
+    @Test
+    void wrapPlainHardBreaksUnbreakableToken() {
+        String token = "a".repeat(50);
+        var lines = AgentConsole.wrapPlain(token, 10);
+        assertEquals(5, lines.size());
+        for (String l : lines) assertEquals(10, l.length());
+    }
+
+    @Test
+    void wrapPlainDropsLeadingSpaceOnWrappedLine() {
+        var lines = AgentConsole.wrapPlain("aaaaaaaaaa bbbbbbbbbb", 10);
+        assertEquals(2, lines.size());
+        assertEquals("aaaaaaaaaa", lines.get(0));
+        assertEquals("bbbbbbbbbb", lines.get(1));   // no leading space carried over
+    }
+
+    // ── stripAnsi ───────────────────────────────────────────────────────────────
+
+    @Test
+    void stripAnsiRemovesSgrEscapes() {
+        String dim = "\033[2m[perm ] ok\033[0m";
+        assertEquals("[perm ] ok", AgentConsole.stripAnsi(dim));
+    }
+
+    @Test
+    void stripAnsiLeavesPlainTextUnchanged() {
+        assertEquals("plain text", AgentConsole.stripAnsi("plain text"));
+    }
 }
