@@ -3,13 +3,15 @@ package io.aicompanion;
 import io.aicompanion.console.Ansi;
 import io.aicompanion.console.Spinner;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jline.terminal.Attributes;
 import org.jline.terminal.Terminal;
 
 /**
  * Owns all streamed-output concerns for a single TaskRunner run:
- * - gutter rendering (│ prefix on each agent line)
+ * - frame rendering (│ on the left of every line, padded content, │ on the right)
  * - spinner lifecycle
  * - space-bar toggle between HIDDEN and VISIBLE modes (requires a JLine terminal)
  * - the rolling summary buffer consumed by the reporter and token estimator
@@ -20,9 +22,10 @@ import org.jline.terminal.Terminal;
  */
 public final class AgentConsole {
 
-    private static final String GUTTER = Ansi.dim("│ ");
-    private static final int    GUTTER_VISUAL_WIDTH = 2;     // "│ " when rendered
-    private static final int    MAX_CONTENT_WIDTH   = 100;   // wrap prose at ~100 cols even on very wide terminals
+    private static final String GUTTER   = Ansi.dim("│ ");   // left frame, drawn at every line start
+    private static final String GUTTER_R = Ansi.dim(" │");   // right frame, drawn when a line is finalized
+    private static final int    FRAME_VISUAL_WIDTH = 4;      // "│ " + " │" reserved columns
+    private static final int    MAX_CONTENT_WIDTH   = 96;    // text width between frames (~100 cols total) even on very wide terminals
 
     // ANSI SGR codes used by the streaming markdown renderer.
     private static final String BOLD_ON   = "\033[1m";
@@ -46,11 +49,12 @@ public final class AgentConsole {
     private volatile boolean hiddenLineStart = true;
 
     // Streaming markdown renderer state (VISIBLE mode).
-    private volatile int     visualCol    = 0;     // cursor col on current visual line (after gutter)
-    private volatile boolean atLineStart  = true;  // logical line start, expect # / - / etc.
-    private volatile boolean inHeading    = false; // current logical line is a heading
-    private volatile boolean inBold       = false; // inside **bold** across words
-    private final StringBuilder wordBuf   = new StringBuilder();
+    private volatile int     visualCol          = 0;    // cursor col on current visual line (after gutter)
+    private volatile boolean atLineStart        = true; // logical line start, expect # / - / etc.
+    private volatile boolean inHeading          = false; // current logical line is a heading
+    private volatile boolean inBold             = false; // inside **bold** across words
+    private volatile int     partialWordFlushed = 0;    // chars of wordBuf already rendered mid-chunk
+    private final StringBuilder wordBuf         = new StringBuilder();
 
     private enum OutputMode { VISIBLE, HIDDEN }
     private volatile OutputMode outputMode;
@@ -71,11 +75,12 @@ public final class AgentConsole {
         summaryBuf.set(new StringBuilder());
         summaryBreakPending = false;
         renderBreakPending  = false;
-        agentLineStart = true;
-        visualCol      = 0;
-        atLineStart    = true;
-        inHeading      = false;
-        inBold         = false;
+        agentLineStart      = true;
+        visualCol           = 0;
+        atLineStart         = true;
+        inHeading           = false;
+        inBold              = false;
+        partialWordFlushed  = 0;
         wordBuf.setLength(0);
     }
 
@@ -157,6 +162,7 @@ public final class AgentConsole {
             }
             System.out.print(text);
             agentLineStart = text.endsWith("\n");
+            System.out.flush();
             return;
         }
         int width = contentWidth();
@@ -175,11 +181,7 @@ public final class AgentConsole {
             char c = text.charAt(i);
             if (c == '\n') {
                 flushWord(out, width);
-                if (inHeading) { out.append(BOLD_OFF); inHeading = false; }
-                out.append('\n');
-                agentLineStart = true;
-                atLineStart    = true;
-                visualCol      = 0;
+                finalizeLine(out, width);
             } else if (c == ' ' || c == '\t') {
                 flushWord(out, width);
                 if (agentLineStart) {
@@ -189,10 +191,8 @@ public final class AgentConsole {
                     out.append(' ');
                     visualCol = 1;
                 } else if (visualCol >= width) {
-                    // Soft-wrap at the space: drop it, start a new line.
-                    out.append('\n');
-                    agentLineStart = true;
-                    visualCol      = 0;
+                    // Soft-wrap at the space: drop it, close the framed line.
+                    finalizeLine(out, width);
                 } else {
                     out.append(' ');
                     visualCol++;
@@ -204,13 +204,52 @@ public final class AgentConsole {
                 if (wordBuf.length() > 200) flushWord(out, width);
             }
         }
+        // Flush the trailing word fragment immediately so each chunk appears
+        // without waiting for the next space. Skip while atLineStart=true because
+        // heading/bullet detection requires seeing the complete first word.
+        // Hold the fragment if it would cross the right margin: emitting it now
+        // would punch through the frame, so we wait for the word to complete and
+        // let flushWord() soft-wrap the whole word onto the next line instead.
+        // (inlineVisualLength is non-mutating so the held fragment doesn't toggle
+        // the inBold state before it is actually rendered.)
+        if (!atLineStart && wordBuf.length() > partialWordFlushed) {
+            String partialSuffix = wordBuf.substring(partialWordFlushed);
+            if (visualCol + inlineVisualLength(partialSuffix) <= width) {
+                if (agentLineStart) { out.append(GUTTER); agentLineStart = false; }
+                String renderedPartial = renderInline(partialSuffix);
+                out.append(renderedPartial);
+                visualCol += visualLength(renderedPartial);
+                partialWordFlushed = wordBuf.length();
+            }
+        }
         System.out.print(out);
+        System.out.flush();
+    }
+
+    /**
+     * Close the current visual line into a frame: draw the left gutter if the
+     * line is still empty (so blank separator lines keep an unbroken left bar),
+     * pad the content out to {@code width}, then draw the right gutter and a
+     * newline. This is what makes the block a fully aligned rectangle — the
+     * left │ runs continuously and the right │ sits flush at a fixed column.
+     */
+    private void finalizeLine(StringBuilder out, int width) {
+        if (inHeading) { out.append(BOLD_OFF); inHeading = false; }
+        if (agentLineStart) { out.append(GUTTER); agentLineStart = false; }
+        for (int p = visualCol; p < width; p++) out.append(' ');
+        out.append(GUTTER_R);
+        out.append('\n');
+        agentLineStart = true;
+        atLineStart    = true;
+        visualCol      = 0;
     }
 
     private void flushWord(StringBuilder out, int width) {
         if (wordBuf.length() == 0) return;
         String word = wordBuf.toString();
         wordBuf.setLength(0);
+        int prevPartial = partialWordFlushed;
+        partialWordFlushed = 0;
 
         if (atLineStart) {
             atLineStart = false;
@@ -228,18 +267,65 @@ public final class AgentConsole {
             }
         }
 
+        if (prevPartial > 0) {
+            // The word was already partially streamed; only render the suffix.
+            // emitVisual hard-breaks at the margin so a token that grew past the
+            // width after it started streaming still can't escape the frame.
+            String suffix = word.substring(prevPartial);
+            if (!suffix.isEmpty()) emitVisual(out, renderInline(suffix), width);
+            return;
+        }
+
         String rendered = renderInline(word);
         int len = visualLength(rendered);
 
         if (visualCol > 0 && visualCol + len > width) {
-            // Word won't fit — wrap before it.
-            out.append('\n');
-            agentLineStart = true;
-            visualCol      = 0;
+            // Word won't fit — close this framed line before it.
+            finalizeLine(out, width);
         }
-        if (agentLineStart) { out.append(GUTTER); agentLineStart = false; }
-        out.append(rendered);
-        visualCol += len;
+        // emitVisual draws the left gutter and hard-breaks any single token that
+        // is itself wider than the frame (e.g. a long backtick path).
+        emitVisual(out, rendered, width);
+    }
+
+    /**
+     * Append already-rendered text (which may contain ANSI SGR escapes of zero
+     * visual width), drawing the left gutter at line starts and hard-breaking
+     * into a new framed line whenever the content reaches the right margin. This
+     * is the safety net that guarantees no glyph ever crosses the right │.
+     */
+    private void emitVisual(StringBuilder out, String rendered, int width) {
+        int i = 0;
+        while (i < rendered.length()) {
+            char c = rendered.charAt(i);
+            if (c == '\033' && i + 1 < rendered.length() && rendered.charAt(i + 1) == '[') {
+                int j = i + 2;
+                while (j < rendered.length() && rendered.charAt(j) != 'm') j++;
+                if (j < rendered.length()) j++;
+                out.append(rendered, i, j);   // SGR escape — no column advance
+                i = j;
+                continue;
+            }
+            if (visualCol >= width) finalizeLine(out, width);
+            if (agentLineStart) { out.append(GUTTER); agentLineStart = false; }
+            out.append(c);
+            visualCol++;
+            i++;
+        }
+    }
+
+    /** Visual width of a word's inline-styled form without mutating render state. */
+    private static int inlineVisualLength(String word) {
+        int n = 0, i = 0;
+        while (i < word.length()) {
+            if (word.charAt(i) == '*' && i + 1 < word.length() && word.charAt(i + 1) == '*') {
+                i += 2;   // ** markers are consumed, not rendered
+            } else {
+                n++;
+                i++;
+            }
+        }
+        return n;
     }
 
     /** Apply inline markdown styling to a single whitespace-delimited word. */
@@ -280,7 +366,7 @@ public final class AgentConsole {
     private int contentWidth() {
         int w = terminal != null ? terminal.getWidth() : 0;
         if (w <= 0) w = 80;
-        int avail = Math.max(20, w - GUTTER_VISUAL_WIDTH);
+        int avail = Math.max(20, w - FRAME_VISUAL_WIDTH);
         return Math.min(avail, MAX_CONTENT_WIDTH);
     }
 
@@ -292,7 +378,7 @@ public final class AgentConsole {
         if (terminal == null || outputMode == null) {
             stopActiveSpinner();
             closeAgentGutter();
-            System.out.println(line);
+            printLogLine(line);
             return;
         }
         synchronized (outputLock) {
@@ -302,25 +388,96 @@ public final class AgentConsole {
             } else {
                 stopActiveSpinner();
                 closeAgentGutter();
-                System.out.println(line);
+                printLogLine(line);
             }
         }
     }
 
+    /**
+     * Print a complete log/event line inside the same frame as agent prose:
+     * word-wrapped (long tokens like paths/commands hard-break) to the content
+     * width, with the left and right │ drawn so the line can never overflow the
+     * frame. Log lines are uniformly dim, so we strip any incoming ANSI and
+     * re-apply {@code Ansi.dim} per wrapped line, keeping each line's styling
+     * self-contained. Falls back to a raw println when ANSI is disabled.
+     */
+    private void printLogLine(String line) {
+        if (!Ansi.enabled()) { System.out.println(line); return; }
+        int width = contentWidth();
+        StringBuilder out = new StringBuilder(line.length() + 16);
+        for (String seg : wrapPlain(stripAnsi(line), width)) {
+            out.append(GUTTER).append(Ansi.dim(seg));
+            for (int p = seg.length(); p < width; p++) out.append(' ');
+            out.append(GUTTER_R).append('\n');
+        }
+        System.out.print(out);
+        System.out.flush();
+    }
+
+    /** Word-wrap plain text to {@code width}, hard-breaking any word wider than it. */
+    static List<String> wrapPlain(String s, int width) {
+        List<String> lines = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        int col = 0, i = 0, n = s.length();
+        while (i < n) {
+            char c = s.charAt(i);
+            if (c == ' ' || c == '\t') {
+                if (col == 0)            { i++; continue; }   // drop leading space on a wrapped line
+                if (col >= width)        { pushLine(lines, line); col = 0; i++; continue; }
+                line.append(' '); col++; i++;
+                continue;
+            }
+            int j = i;
+            while (j < n && s.charAt(j) != ' ' && s.charAt(j) != '\t') j++;
+            String word = s.substring(i, j);
+            i = j;
+            if (col > 0 && col + word.length() > width) {     // soft-wrap before a word that fits alone
+                pushLine(lines, line); col = 0;
+            }
+            for (int k = 0; k < word.length(); k++) {         // hard-break a word wider than the frame
+                if (col >= width) { pushLine(lines, line); col = 0; }
+                line.append(word.charAt(k)); col++;
+            }
+        }
+        pushLine(lines, line);
+        return lines;
+    }
+
+    /** Append {@code line} (trailing spaces trimmed) to {@code lines} and reset the buffer. */
+    private static void pushLine(List<String> lines, StringBuilder line) {
+        int end = line.length();
+        while (end > 0 && line.charAt(end - 1) == ' ') end--;
+        lines.add(line.substring(0, end));
+        line.setLength(0);
+    }
+
+    /** Remove ANSI SGR escapes, leaving only visible characters. */
+    static String stripAnsi(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        int i = 0;
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (c == '\033' && i + 1 < s.length() && s.charAt(i + 1) == '[') {
+                i += 2;
+                while (i < s.length() && s.charAt(i) != 'm') i++;
+                if (i < s.length()) i++;
+            } else {
+                b.append(c);
+                i++;
+            }
+        }
+        return b.toString();
+    }
+
     /** Ensures the next caller-emitted line starts on a fresh row, not after a gutter. */
     public void closeAgentGutter() {
-        if (wordBuf.length() > 0) {
-            StringBuilder out = new StringBuilder();
-            flushWord(out, contentWidth());
-            if (out.length() > 0) System.out.print(out);
-        }
+        int width = contentWidth();
+        StringBuilder out = new StringBuilder();
+        if (wordBuf.length() > 0) flushWord(out, width);
         if (!agentLineStart) {
-            if (inHeading) { System.out.print(BOLD_OFF); inHeading = false; }
-            System.out.println();
-            agentLineStart = true;
-            atLineStart    = true;
-            visualCol      = 0;
+            finalizeLine(out, width);
         }
+        if (out.length() > 0) System.out.print(out);
     }
 
     // ── spinner ───────────────────────────────────────────────────────────────
@@ -395,6 +552,7 @@ public final class AgentConsole {
                 stopActiveSpinner();
                 if (!liveBuffer.isEmpty()) {
                     System.out.print(liveBuffer);
+                    System.out.flush();
                     agentLineStart = hiddenLineStart;
                     liveBuffer.setLength(0);
                 }

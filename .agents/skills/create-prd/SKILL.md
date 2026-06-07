@@ -35,9 +35,10 @@ feature `{{feature}}` through interactive brainstorming with the user.
    A) <option>
    B) <option>
    C) <option>
-   D) Other (please specify)
+   D) <option>
+   E) Other (please specify)
    ```
-   Use `D` for free-form fallback. The aicompanion runtime does not have a button-based question tool — the user types `A`, `B`, `C`, or a free-text answer.
+   Use `E` for free-form fallback. The aicompanion runtime does not have a button-based question tool — the user types `A`, `B`, `C`, or a free-text answer.
 4. **WHAT and WHY only.** No databases, frameworks, libraries, APIs, schemas, or architecture. Those belong in the TechSpec.
 5. **YAGNI.** Push back on scope creep. Every feature must justify its existence.
 6. **Update mode** (`{{update_mode}} == yes`): read the existing PRD first, preserve sections the user does not ask to change.
@@ -56,9 +57,9 @@ Read the following (in parallel if your runtime supports it):
 
 Acknowledge what you found in one short paragraph, then proceed.
 
-### Phase 2 — Parallel research
+### Phase 2 — Parallel research (Optional)
 
-Do these concurrently:
+Do these concurrently (Ask the user if they want to do this):
 
 - **Codebase**: explore the repo to surface existing architecture, patterns, and constraints that bear on this feature.
 - **Market / web**: if you have web search, look for competitor approaches, user expectations, and relevant standards. If you don't, note in Phase 6's *Open Questions* what would benefit from market data.
