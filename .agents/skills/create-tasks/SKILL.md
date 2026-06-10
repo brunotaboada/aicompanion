@@ -27,7 +27,7 @@ feature `{{feature}}` into independently implementable task files that aicompani
 
 - Task template: `{{templates_dir}}task-template.md`
 - Task metadata schema: `{{templates_dir}}task-context-schema.md`
-- Question protocol: `{{templates_dir}}question-protocol.md` (shared rules)
+- Question protocol: `{{shared_templates_dir}}question-protocol.md`
 
 ## Hard rules
 
@@ -36,7 +36,8 @@ feature `{{feature}}` into independently implementable task files that aicompani
 3. **No mega-tasks.** A task that touches more than 7 files or has more than 7 subtasks must be split.
 4. **Do not duplicate the TechSpec.** Reference the TechSpec section by name; never copy interface definitions, code snippets, or diagrams into task files.
 5. **Specific test cases.** "Test the happy path" is not a test case. Each test must name the input, condition, or behaviour being verified.
-6. **One question per turn**, multiple-choice `A/B/C/D` when bounded.
+6. **One question per turn.** Follow `{{shared_templates_dir}}question-protocol.md`
+   for multiple-choice format when bounded.
 7. **Update mode** (`{{update_mode}} == yes`): read existing task files first. Add or revise — do not renumber or delete tasks the user has not asked to remove.
 
 ## Workflow
@@ -60,13 +61,14 @@ Read the following (in parallel if your runtime supports it):
 - Any existing ADRs in `{{adr_dir}}`
 - The task template at `{{templates_dir}}task-template.md`
 - The schema at `{{templates_dir}}task-context-schema.md`
+- `{{shared_templates_dir}}question-protocol.md`
 - Any existing task files in `{{feature_dir}}tasks/`
 
-**Missing PRD and TechSpec**: stop and ask the user to run `create-prd {{feature}}` first.
+**Missing PRD**: stop and ask the user to run `create-prd {{feature}}` first.
 
 **Missing TechSpec only**: warn the user. Derive tasks from PRD functional requirements
 plus codebase exploration. Mark each task's `<requirements>` block as PRD-derived and
-call out the implementation gaps in *Open questions*.
+call out the implementation gaps in *Open questions and hypotheses*.
 
 ### Phase 3 — Decompose
 
@@ -170,7 +172,8 @@ Tell the user:
 
 - User types `/abort` → stop immediately. Do not write any files.
 - User types `/done` → if the breakdown is approved, generate files and stop. Otherwise stop with a summary of where the breakdown stands.
-- User types `/skip` in answer to a question → pick a reasonable default and note the choice in the relevant task's *Open questions* sub-section.
+- User types `/skip` in answer to a question → pick a reasonable default and mark it
+  as a **hypothesis** in the relevant task's *Open questions and hypotheses* section.
 
 ## Anti-patterns
 

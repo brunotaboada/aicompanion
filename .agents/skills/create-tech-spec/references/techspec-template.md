@@ -150,8 +150,9 @@ Technical risks specific to this design. Each one names the mitigation.
 
 ## Architecture Decision Records
 
-- [ADR-001](adrs/adr-001.md) — <title> — <one-line summary>
-- [ADR-002](adrs/adr-002.md) — <title> — <one-line summary>
+Continue numbering from PRD-era ADRs (e.g. if the PRD produced ADR-001–003, the first
+TechSpec ADR is ADR-004). List every ADR for this feature:
+
 - [ADR-NNN](adrs/adr-NNN.md) — <title> — <one-line summary>
 
 ---

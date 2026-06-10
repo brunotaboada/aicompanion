@@ -90,8 +90,10 @@ Measurable outcomes that prove the task is done.
 - `<test command>` exits 0.
 - `<any feature-specific signal>`.
 
-## Open questions
+## Open questions and hypotheses
 
-Optional. Things the implementer should raise rather than guess.
+Optional. Things the implementer should raise rather than guess, and defaults assumed
+during task breakdown that still need confirmation.
 
-- <Question> — `<who can answer>`.
+- **Hypothesis:** <assumed default> — confirm with <who can answer>.
+- **Open:** <question> — needs <who can answer / research>.

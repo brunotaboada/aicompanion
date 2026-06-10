@@ -25,10 +25,13 @@ D) Other (please specify)
 ```
 
 The aicompanion runtime does not have a button-based question tool. The user replies
-by typing `A`, `B`, `C`, or free text. Always include `D) Other` as the fallback.
+by typing `A`, `B`, `C`, `D`, or free text. Always include `D) Other` as the fallback.
 
 When the answer space is genuinely open-ended, ask a plain free-form question. Use
 this sparingly — bounded choices move the conversation forward faster.
+
+Approval gates (approve / request changes / discard) may use `A/B/C` without an
+`Other` option.
 
 ## When the user doesn't know
 
@@ -49,18 +52,35 @@ next stage until the user confirms.
 If an answer contradicts something established earlier, point out the inconsistency
 immediately and ask for a correction before continuing.
 
-## Phases (PRD context)
+## Phases by skill
 
-1. **Discovery** — product/system, target audience, deployment context, business objective.
-2. **Pain** — what is bad, expensive, slow, insecure or fragile today. Ask for a recent
-   real example with approximate numbers. Ask what was already tried and didn't work.
-3. **Goals** — turn objectives into goal → metric → target triplets.
-4. **Scope and requirements** — in scope, out of scope, functional requirements with
-   flows, acceptance criteria, tests.
-5. **Creation** — consistency checks, then generate the document. Every section
-   reflects a confirmed decision or an explicitly marked hypothesis.
+### `create-prd` — nine stages
 
-Don't advance a phase until the previous one is grounded and confirmed at its checkpoint.
+Match `question-bank.md`. Checkpoint after each stage:
+
+1. **Context** — product/system, existing vs new system, business objective, target audience, key use cases.
+2. **Pain** — what is bad, expensive, slow, insecure or fragile today; a recent real example with approximate numbers; what was already tried.
+3. **Goals and metrics** — goal → metric → target triplets.
+4. **Scope** — in scope, out of scope.
+5. **Functional requirements** — flows, exceptions, expected errors, priority.
+6. **Dependencies** — organizational and external blockers.
+7. **Risks** — probability, impact, mitigation, contingency plan.
+8. **Acceptance criteria** — objective, verifiable statements.
+9. **Tests and validation** — mandatory test types and validation approach.
+
+Then: consistency checks, draft, review, save.
+
+### `create-tech-spec` — technical clarification topics
+
+Checkpoint after each topic. Cover at minimum: architecture approach, component
+boundaries, communication patterns, external integrations, data model, storage,
+APIs/interfaces, non-functional requirements, given decisions, testing strategy,
+observability, migration/rollout.
+
+### `create-tasks` — breakdown approval
+
+Present the full task table, then ask for approval or adjustments. When adjusting,
+ask one clarifying question per turn.
 
 ## Strategic constraints
 
@@ -70,7 +90,9 @@ Don't advance a phase until the previous one is grounded and confirmed at its ch
 - **YAGNI**: every requirement must justify its existence. "Could be useful" is not
   enough.
 - **Surface uncertainty**: when the user can't answer, capture it as a hypothesis or
-  in *Open Questions* with a note on what would close it.
+  in *Open questions and hypotheses* (PRD), as **(hypothesis)** in the relevant
+  TechSpec section (typically *Non-functional requirements*), or in the task's
+  *Open questions and hypotheses* section.
 
 ## User-side sentinels
 
@@ -80,6 +102,6 @@ The aicompanion shell intercepts these before they reach you:
 - `/done` — produce the draft from what you have so far, or stop with a summary of
   what's still needed.
 - `/skip` (in answer to a question) — pick a reasonable default and mark it as a
-  hypothesis.
+  **hypothesis** in the document section listed above for that skill.
 - `/edit` — the user is opening `$EDITOR` to compose a long answer; the contents
   arrive as the next message.

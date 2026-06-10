@@ -13,7 +13,7 @@ or by tooling.
 - `pending` — created, not yet started.
 - `in_progress` — actively being worked on.
 - `completed` — all subtasks done, tests pass, self-review clean.
-- `blocked` — waiting on a dependency or decision; explain in *Open questions*.
+- `blocked` — waiting on a dependency or decision; explain in *Open questions and hypotheses*.
 - `cancelled` — removed from scope after creation; preserve the file for history.
 
 ### `title` (required)

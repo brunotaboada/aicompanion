@@ -1,6 +1,6 @@
 # PRD JSON format
 
-During the interview, keep the collected information organised internally along
+During the interview, keep the collected information organized internally along
 this structure. **Never show the raw JSON to the user during the interview.**
 
 After the markdown PRD is saved, if the user asks for the JSON export, write
@@ -12,8 +12,13 @@ After the markdown PRD is saved, if the user asks for the JSON export, write
 - Values (the textual content) stay in the language the interview was conducted in,
   because they mirror the PRD.
 - Fill in only data that was actually collected. **Do not include empty fields.**
+- `expected_errors` mirrors the PRD template label *Expected errors*.
+- `testing_validation.strategy` is a list of strings — one per bullet in the PRD's
+  *Validation strategy* section.
 - Do not include sections that did not appear in the final PRD.
-- Do not include attachments, references, next steps, or dates/deadlines beyond `meta.date`.
+- Do not include attachments, next steps, or dates/deadlines beyond `meta.date`.
+- Include `architecture_decision_records` only when the PRD's *Architecture Decision Records*
+  section lists ADRs.
 - Architecture, technical decisions and non-functional requirements are **not** part
   of this JSON — they belong to the TechSpec (`create-tech-spec`).
 
@@ -54,7 +59,7 @@ After the markdown PRD is saved, if the user asks for the JSON export, write
       "description": "",
       "main_flow": [],
       "alternative_flows": [],
-      "known_errors": [],
+      "expected_errors": [],
       "priority": "high|medium|low"
     }
   ],
@@ -73,8 +78,11 @@ After the markdown PRD is saved, if the user asks for the JSON export, write
   "acceptance_criteria": [],
   "testing_validation": {
     "test_types": [],
-    "strategy": ""
+    "strategy": []
   },
+  "architecture_decision_records": [
+    { "id": "ADR-001", "title": "", "summary": "", "path": "adrs/adr-001.md" }
+  ],
   "hypotheses": [
     { "assumption": "", "needs": "" }
   ],

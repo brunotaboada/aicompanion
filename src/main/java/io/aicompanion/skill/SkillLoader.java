@@ -27,7 +27,7 @@ public class SkillLoader {
     static final List<String> PLACEHOLDERS = List.of(
         "{{feature}}", "{{feature_dir}}", "{{output_file}}",
         "{{adr_dir}}", "{{seed_file}}", "{{update_mode}}",
-        "{{templates_dir}}"
+        "{{templates_dir}}", "{{shared_templates_dir}}"
     );
 
     private final Path skillsRoot;
@@ -78,7 +78,7 @@ public class SkillLoader {
         Path outputFile = ctx.featureDir().resolve(metadata.outputRelativePath());
         Path skillDir = skillFile.getParent();
 
-        String rendered = render(fm.body(), ctx, metadata, skillDir, outputFile);
+        String rendered = render(fm.body(), ctx, metadata, skillDir, outputFile, skillsRoot);
         return new Skill(metadata, rendered, outputFile);
     }
 
@@ -163,7 +163,7 @@ public class SkillLoader {
      * agent sees consistent input on any platform.
      */
     static String render(String body, SkillContext ctx, SkillMetadata metadata,
-                         Path skillDir, Path outputFile) {
+                         Path skillDir, Path outputFile, Path skillsRoot) {
         Path seed = ctx.seedFile() != null
             ? ctx.seedFile()
             : ctx.featureDir().resolve("_idea.md");
@@ -175,7 +175,8 @@ public class SkillLoader {
         subs.put("{{adr_dir}}",        asPosix(ctx.featureDir().resolve("adrs")) + "/");
         subs.put("{{seed_file}}",      asPosix(seed));
         subs.put("{{update_mode}}",    ctx.updateMode() ? "yes" : "no");
-        subs.put("{{templates_dir}}",  asPosix(skillDir.resolve("references")) + "/");
+        subs.put("{{templates_dir}}",        asPosix(skillDir.resolve("references")) + "/");
+        subs.put("{{shared_templates_dir}}", asPosix(skillsRoot.resolve("_shared/references")) + "/");
 
         String rendered = body;
         for (Map.Entry<String, String> e : subs.entrySet()) {

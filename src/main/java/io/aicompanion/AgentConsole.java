@@ -414,6 +414,38 @@ public final class AgentConsole {
         System.out.flush();
     }
 
+    /**
+     * Re-echo a just-submitted input line wrapped to the frame's right margin.
+     * JLine echoes input at the full terminal width, so on a wide terminal a
+     * long {@code you>} line punches past the right │ of the agent frame.
+     * After Enter the echo is already on screen; erase the rows it occupied
+     * and reprint the line wrapped to the same margin the frame uses.
+     * No-op when the echo already fits or when ANSI/terminal is unavailable.
+     */
+    public void reframeUserEcho(String prompt, String line) {
+        if (!Ansi.enabled() || terminal == null) return;
+        int termWidth = terminal.getWidth();
+        if (termWidth <= 0) termWidth = 80;
+        int margin = Math.min(contentWidth() + FRAME_VISUAL_WIDTH, termWidth);
+        if (prompt.length() + line.length() <= margin) return;
+        // Cursor sits at column 0 just below the echo; the echo occupied
+        // ceil(totalLen / termWidth) rows. Move up over them and clear down.
+        int rows = (prompt.length() + line.length() + termWidth - 1) / termWidth;
+        System.out.print("\033[" + rows + "A\033[J" + reframedEcho(prompt, line, margin));
+        System.out.flush();
+    }
+
+    /** The wrapped replacement echo: prompt on the first line, continuation lines indented under it. */
+    static String reframedEcho(String prompt, String line, int margin) {
+        String indent = " ".repeat(prompt.length());
+        StringBuilder out = new StringBuilder(line.length() + 32);
+        List<String> segs = wrapPlain(line, margin - prompt.length());
+        for (int i = 0; i < segs.size(); i++) {
+            out.append(i == 0 ? prompt : indent).append(segs.get(i)).append('\n');
+        }
+        return out.toString();
+    }
+
     /** Word-wrap plain text to {@code width}, hard-breaking any word wider than it. */
     static List<String> wrapPlain(String s, int width) {
         List<String> lines = new ArrayList<>();

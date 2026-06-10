@@ -93,9 +93,16 @@ class SkillScaffolderTest {
             "expected create-tech-spec in result: " + r.created());
         assertTrue(r.created().contains("create-tasks"),
             "expected create-tasks in result: " + r.created());
+        assertTrue(r.created().contains("_shared"),
+            "expected _shared in result: " + r.created());
 
-        // Every skill arrives with at least its SKILL.md
+        // Every skill arrives with at least its SKILL.md; _shared is references only
         for (String name : r.created()) {
+            if ("_shared".equals(name)) {
+                assertTrue(Files.exists(projectRoot.resolve(
+                    ".agents/skills/_shared/references/question-protocol.md")));
+                continue;
+            }
             assertTrue(Files.exists(projectRoot.resolve(".agents/skills/" + name + "/SKILL.md")),
                 "SKILL.md missing for " + name);
         }

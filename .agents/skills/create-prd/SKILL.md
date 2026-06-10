@@ -28,22 +28,17 @@ Document for the feature `{{feature}}` that explains **why the feature exists**,
 - PRD template: `{{templates_dir}}prd-template.md`
 - PRD JSON format: `{{templates_dir}}prd-json-schema.md`
 - Question bank: `{{templates_dir}}question-bank.md`
-- Question protocol: `{{templates_dir}}question-protocol.md`
-- ADR template: `{{templates_dir}}adr-template.md`
+- Question protocol: `{{shared_templates_dir}}question-protocol.md`
+- ADR template: `{{shared_templates_dir}}adr-template.md`
 
 ## Hard rules
 
 1. **Do not write the PRD file until the user explicitly approves the final draft.**
 2. **One question per turn.** No double questions. Wait for the user's answer before asking the next.
-3. **Multiple-choice format** whenever the answer space is bounded. Render as:
-   ```
-   A) <option>
-   B) <option>
-   C) <option>
-   D) <option>
-   E) Other (please specify)
-   ```
-   Use `E` for free-form fallback. The aicompanion runtime does not have a button-based question tool — the user types `A`, `B`, `C`, or a free-text answer.
+3. **Multiple-choice format** whenever the answer space is bounded. Follow
+   `{{shared_templates_dir}}question-protocol.md`: three options plus
+   `D) Other (please specify)`. The aicompanion runtime does not have a
+   button-based question tool — the user types `A`, `B`, `C`, `D` and so forth or free text.
 4. **WHAT and WHY only.** No databases, frameworks, libraries, APIs, schemas, or architecture. Those belong in the TechSpec.
 5. **Checkpoint each stage.** At the end of every interview stage, post a 3–6 line
    summary of what you understood and ask "correct, or does something need adjusting?"
@@ -65,7 +60,7 @@ Read the following (in parallel if your runtime supports it):
 - `{{seed_file}}` if it exists
 - `{{output_file}}` if `{{update_mode}}` is `yes`
 - `{{templates_dir}}prd-template.md`
-- `{{templates_dir}}question-protocol.md`
+- `{{shared_templates_dir}}question-protocol.md`
 - `{{templates_dir}}question-bank.md`
 - Any existing ADRs in `{{adr_dir}}`
 
@@ -112,7 +107,7 @@ JSON during the interview.
 
 If the interview surfaces genuinely distinct product strategies, present **2–3**
 with trade-offs and ask the user to pick one. For the chosen approach, write an
-ADR using `{{templates_dir}}adr-template.md` to `{{adr_dir}}/adr-NNN.md` (next
+ADR using `{{shared_templates_dir}}adr-template.md` to `{{adr_dir}}/adr-NNN.md` (next
 available number, zero-padded, three digits). If there is only one sensible
 direction, say so in one sentence and move on — do not invent alternatives.
 
@@ -165,7 +160,9 @@ B) No — markdown is enough
 
 On `A`, write `_prd.json` to `{{feature_dir}}` following
 `{{templates_dir}}prd-json-schema.md` exactly: English keys, values in the
-interview language, no empty fields, no sections that aren't in the PRD.
+interview language, no empty fields, no sections that aren't in the PRD
+(including `architecture_decision_records` when ADRs exist, and `expected_errors`
+for each functional requirement).
 Then close in one short message:
 
 > Done. Run `create-tech-spec {{feature}}` next.

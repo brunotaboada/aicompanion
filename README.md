@@ -52,25 +52,29 @@ The key discipline `aicompanion` enforces is **explicit task decomposition befor
 ```
 features/
   user-model/tasks/
-    01-create-entity.md           ──► agent builds it ──► tests pass ──► next
-    02-add-repository.md          ──► agent builds it ──► tests pass ──► next
+    task_01.md                    ──► agent builds it ──► tests pass ──► next
+    task_02.md                    ──► agent builds it ──► tests pass ──► next
   rest-api/tasks/
-    01-add-endpoints.md           ──► agent builds it ──► tests pass ──► next
-    02-add-validation.md
+    task_01.md                    ──► agent builds it ──► tests pass ──► next
+    task_02.md
   auth/tasks/
-    01-add-login.md
+    task_01.md
 ```
+
+`create-tasks` generates `task_NN.md` files (zero-padded, with YAML frontmatter).
+Hand-written tasks can use the same `task_NN.md` pattern or any `NN-description.md`
+name — the runner sorts task files alphabetically within each feature.
 
 Drop one feature in `features/` to ship a single feature; drop several to ship
 them all in one run. Features execute in alphabetical order, and within each
 feature its tasks execute in alphabetical order. Resume state is scoped per
-feature (`user-model/01-create-entity.md`), so editing one feature's tasks
+feature (`user-model/task_01.md`), so editing one feature's tasks
 doesn't invalidate another's progress.
 
 Each task file is a natural-language description of one slice of work:
 
 ```markdown
-# features/rest-api/tasks/01-add-endpoints.md
+# features/rest-api/tasks/task_01.md
 
 Add REST endpoints for the User entity:
 - GET  /users/{id}   → return user as JSON
@@ -250,7 +254,7 @@ mkdir -p features/user-model/tasks
 ```
 
 ```markdown
-# features/user-model/tasks/01-create-model.md
+# features/user-model/tasks/task_01.md
 
 Create a `User` class in `src/main/java/com/example/User.java` with:
 - `id` (Long, primary key)
@@ -281,13 +285,13 @@ aicompanion> agents
 aicompanion> tasks
 Features in features (1 features, 2 tasks):
   user-model:
-   1. 01-create-model.md
-   2. 02-add-endpoints.md
+   1. task_01.md
+   2. task_02.md
 
 aicompanion> run
 ═══ Feature: user-model  (2 tasks) ═══
 ──────────────────────────────────────────────────────────
-Task 1/2: user-model/01-create-model.md
+Task 1/2: user-model/task_01.md
 ──────────────────────────────────────────────────────────
 [write] src/main/java/com/example/User.java (842 chars)
 [write] src/main/java/com/example/UserRepository.java (312 chars)
@@ -309,20 +313,20 @@ All 2 tasks complete.
 
 ## Task File Format
 
-Task files are plain Markdown (or `.txt`) placed in `features/<feature-name>/tasks/` and sorted alphabetically. Prefix filenames with numbers to control execution order.
+Task files are plain Markdown (or `.txt`) placed in `features/<feature-name>/tasks/` and sorted alphabetically. The `create-tasks` skill writes `task_01.md`, `task_02.md`, … with YAML frontmatter; hand-written tasks can use the same pattern or `NN-description.md` names.
 
 ```
 features/storefront/tasks/
-  01-setup-database.md
-  02-create-models.md
-  03-add-api-routes.md
-  04-write-unit-tests.md
+  task_01.md
+  task_02.md
+  task_03.md
+  task_04.md
 ```
 
 Each file is a natural-language description of what the agent should build:
 
 ```markdown
-# features/storefront/tasks/02-create-models.md
+# features/storefront/tasks/task_02.md
 
 Create JPA entity classes for the following tables:
 
@@ -546,9 +550,10 @@ The agent runs with full filesystem access via the client-side handlers. The `--
 ```
 aicompanion/
 ├── .agents/skills/                Canonical skill bundles (also bundled in JAR)
-│   ├── create-prd/                SKILL.md + references/
-│   ├── create-tech-spec/          SKILL.md + references/
-│   └── create-tasks/              SKILL.md + references/
+│   ├── _shared/references/        Shared templates (ADR, question protocol)
+│   ├── create-prd/                SKILL.md + skill-specific references/
+│   ├── create-tech-spec/          SKILL.md + skill-specific references/
+│   └── create-tasks/              SKILL.md + skill-specific references/
 ├── src/main/java/io/aicompanion/
 │   ├── Main.java                  Entry point (REPL, one-shot, or skill CLI)
 │   ├── Shell.java                 JLine3 interactive REPL + skill discovery
