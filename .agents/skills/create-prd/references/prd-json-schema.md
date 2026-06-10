@@ -1,45 +1,85 @@
 # PRD JSON format
 
-When the user asks for the PRD in structured JSON, write `_prd.json` next to
-`_prd.md` using this shape. All keys are in English, regardless of the language
-the interview was conducted in. Omit a key only when the matching PRD section
-is genuinely empty.
+During the interview, keep the collected information organised internally along
+this structure. **Never show the raw JSON to the user during the interview.**
+
+After the markdown PRD is saved, if the user asks for the JSON export, write
+`_prd.json` next to `_prd.md` using exactly this structure.
+
+## Rules
+
+- Keys are always in **English**.
+- Values (the textual content) stay in the language the interview was conducted in,
+  because they mirror the PRD.
+- Fill in only data that was actually collected. **Do not include empty fields.**
+- Do not include sections that did not appear in the final PRD.
+- Do not include attachments, references, next steps, or dates/deadlines beyond `meta.date`.
+- Architecture, technical decisions and non-functional requirements are **not** part
+  of this JSON — they belong to the TechSpec (`create-tech-spec`).
+
+## Structure
 
 ```json
 {
-  "feature_name": "string",
-  "status": "draft | approved | superseded",
-  "owner": "string",
-  "last_updated": "YYYY-MM-DD",
-  "summary": "string — what the feature is and why it is needed now",
-  "problem": "string — the problem, who has it, current state",
-  "business_objectives": ["string — measurable goal"],
-  "target_environment": "string — where the feature runs and for whom",
-  "user_stories": [
-    { "persona": "string", "action": "string", "outcome": "string" }
-  ],
-  "core_features": [
-    { "name": "string", "description": "string", "user_value": "string" }
-  ],
-  "user_experience": {
-    "primary_flow": ["string — step"],
-    "alternate_flows": ["string"],
-    "error_states": ["string"]
+  "meta": {
+    "product": "",
+    "feature": "",
+    "prd_owner": "",
+    "version": "",
+    "date": "YYYY-MM-DD"
   },
-  "non_goals": ["string"],
-  "acceptance_criteria": ["string — objective, verifiable criterion"],
-  "tests_and_validation": {
-    "mandatory_test_types": ["string — e.g., unit tests for critical business rules"],
-    "validation_strategy": "string — e.g., TDD for critical logic, scripted manual QA"
+  "context": {
+    "summary": "",
+    "target_audience": [],
+    "key_use_cases": [],
+    "deployment_context": {
+      "type": "existing_system|new_system",
+      "description": ""
+    },
+    "problems": [
+      { "description": "", "impact": "", "priority": "high|medium|low" }
+    ]
   },
+  "goals": [
+    { "goal": "", "metric": "", "target": "" }
+  ],
+  "scope": {
+    "in_scope": [],
+    "out_of_scope": []
+  },
+  "functional_requirements": [
+    {
+      "id": "FR-001",
+      "name": "",
+      "description": "",
+      "main_flow": [],
+      "alternative_flows": [],
+      "known_errors": [],
+      "priority": "high|medium|low"
+    }
+  ],
+  "dependencies": [
+    { "type": "external|organizational|technical", "title": "", "description": "" }
+  ],
   "risks": [
-    { "risk": "string", "likelihood": "low | medium | high", "mitigation": "string" }
+    {
+      "risk": "",
+      "probability": "low|medium|high",
+      "impact": "",
+      "mitigation": [],
+      "contingency_plan": ""
+    }
   ],
-  "adrs": [
-    { "id": "ADR-001", "path": "adrs/adr-001.md", "summary": "string" }
+  "acceptance_criteria": [],
+  "testing_validation": {
+    "test_types": [],
+    "strategy": ""
+  },
+  "hypotheses": [
+    { "assumption": "", "needs": "" }
   ],
   "open_questions": [
-    { "question": "string", "needs": "string — decision-maker / research / data" }
+    { "question": "", "needs": "" }
   ]
 }
 ```

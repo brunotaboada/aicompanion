@@ -27,6 +27,28 @@ Describe data flow between components in a short paragraph or a simple diagram.
 Systems outside our control that this feature touches. For each one: what we send,
 what we receive, and what happens when it's unavailable.
 
+### Communication patterns
+
+How components talk to each other: synchronous, asynchronous, or both. Queues,
+messaging, streaming, caching — and why that pattern fits.
+
+## Non-functional requirements
+
+Numeric targets or clear standards per category. Defaults assumed on the user's
+behalf are marked **(hypothesis)** — see `smart-defaults.md`. Include at least
+performance and availability, even if marked as hypothesis.
+
+- **Performance** — <e.g., p95 under 150 ms for synchronous endpoints>
+- **Availability** — <e.g., 99.9% monthly uptime in production>
+- **Security and authorization** — <e.g., mandatory authentication, role-based access, audit of sensitive changes>
+- **Observability** — <e.g., structured logs, error metrics per endpoint, end-to-end distributed tracing>
+- **Reliability and data integrity** — <e.g., stock updates are transactional>
+- **Compatibility and portability** — <e.g., versioned REST JSON API under /v1, OCI container image>
+- **Compliance** — <e.g., price and stock audit trail available for reconciliation>
+- **Accessibility (consuming frontend)** — <e.g., API responses carry alt text and labels needed for accessibility>
+
+Drop categories that genuinely don't apply; don't pad.
+
 ## Implementation design
 
 ### Core interfaces
@@ -110,12 +132,14 @@ What we instrument and what we alert on.
 
 ## Technical considerations
 
-### Key decisions
+### Key decisions and trade-offs
 
-Brief recap of decisions captured in ADRs. Each one links to its ADR for the full
-rationale.
+Every significant decision carries its justification and its trade-off. Decisions
+that were already given (not made in this interview) are recorded the same way.
+Each one links to its ADR for the full rationale.
 
-- **<Decision>** — chosen approach. Trade-off: <what we gave up>. See [ADR-NNN](adrs/adr-NNN.md).
+- **<Decision>** — justification: <why this was decided>. Trade-off: <cost or
+  limitation accepted>. See [ADR-NNN](adrs/adr-NNN.md).
 
 ### Known risks
 

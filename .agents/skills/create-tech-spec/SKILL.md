@@ -27,6 +27,7 @@ clarification with the user.
 - TechSpec template: `{{templates_dir}}techspec-template.md`
 - ADR template: `{{templates_dir}}adr-template.md`
 - Question protocol: `{{templates_dir}}question-protocol.md` (shared rules — same as `create-prd`)
+- Smart defaults: `{{templates_dir}}smart-defaults.md` (NFR fallbacks, always marked as hypothesis)
 
 ## Hard rules
 
@@ -36,7 +37,13 @@ clarification with the user.
 4. **PRD is the source of truth for scope.** If a question would change the PRD's *Core features* or *Non-goals*, stop and tell the user — re-running `create-prd` may be needed.
 5. **Mandatory codebase exploration.** Every TechSpec is informed by the existing architecture.
 6. **YAGNI.** Don't design abstractions for hypothetical future requirements.
-7. **Update mode** (`{{update_mode}} == yes`): read the existing TechSpec first, preserve sections the user does not ask to change.
+7. **Checkpoint each stage.** At the end of every clarification topic, post a 3–6 line
+   summary of what you understood and ask "correct, or does something need adjusting?"
+   before moving on. Flag inconsistencies with earlier answers immediately.
+8. **Hypotheses, not inventions.** When the user doesn't know, offer 2–3 plausible
+   options (use `{{templates_dir}}smart-defaults.md` for NFRs). Anything assumed is
+   explicitly marked as a hypothesis in the TechSpec — never presented as confirmed.
+9. **Update mode** (`{{update_mode}} == yes`): read the existing TechSpec first, preserve sections the user does not ask to change.
 
 ## Workflow
 
@@ -67,16 +74,34 @@ Summarise findings in 3–5 bullets. Confirm with the user (one short message �
 
 Per the question protocol, ask one at a time. Cover at minimum:
 
-- **Architecture approach** — where this lives, which layer owns it
-- **Component boundaries** — what's a separate module vs inline
+- **Architecture approach** — does a vision already exist? If yes, capture it. If
+  not, suggest 2–3 options with pros and cons. Where does this run (monolith,
+  microservice, agent, ...) and which layer owns it
+- **Component boundaries** — main components, what's a separate module vs inline
+- **Communication patterns** — synchronous, asynchronous or both; queue, messaging
+  or streaming; caching
+- **External integrations** — which ones, what is exchanged, what happens when they're down
 - **Data model** — entities, relationships, persistence shape
 - **Storage** — where data lives, retention, consistency requirements
 - **APIs / interfaces** — the contract exposed to callers
+- **Non-functional requirements** — collect numeric targets per category:
+  performance (e.g., p95 under 150 ms), availability (e.g., 99.9%), security and
+  authorization, observability, reliability/data integrity, compatibility,
+  compliance, accessibility. When the user can't answer, offer the matching entry
+  from `{{templates_dir}}smart-defaults.md` and record it as a hypothesis. At
+  minimum, performance and availability must end up with targets, even as hypotheses
+- **Given decisions** — which technical decisions are already made, and why. Record
+  each with its justification and trade-off
 - **Testing strategy** — unit vs integration boundary, mocking approach
 - **Observability** — what to log, what to measure
 - **Migration / rollout** — if this changes existing behaviour
 
 Skip questions the PRD or existing TechSpec already answers unambiguously.
+
+Before drafting, verify: the proposed architecture supports the declared
+non-functional targets; every significant decision has a justification and a
+trade-off; every assumed default is marked as a hypothesis. If anything fails,
+ask the missing question first.
 
 ### Phase 4 — ADRs
 
@@ -94,6 +119,10 @@ Generate the **complete** TechSpec inline (do not save to disk yet). Use
 Requirements:
 
 - Every PRD goal maps to at least one technical component or section.
+- *Non-functional requirements* has at least performance and availability targets
+  (marked as hypothesis if defaulted).
+- *Key decisions and trade-offs* records every significant decision with its
+  justification and trade-off — including decisions that were already given.
 - *Architecture Decision Records* section lists every ADR (number, title, one-line summary).
 - *Core interfaces* section includes at least one code-style interface or contract definition (≤ 20 lines).
 - *Build order* in *Development sequencing* is numbered and states dependencies explicitly.
