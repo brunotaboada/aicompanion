@@ -4,19 +4,32 @@
 > **Owner:** <name>
 > **Last updated:** <YYYY-MM-DD>
 
-## Overview
+## Summary
 
-One short paragraph. The problem this feature solves, who has the problem, and why
-solving it now is worth the effort. No implementation details.
+One short paragraph. What the feature is and why it is needed **now**. No
+implementation details.
 
-## Goals
+## Problem
 
-Bulleted, measurable, time-bound where possible. Each goal answers "what does success
-look like?" in business / user terms.
+The problem this feature solves, who has the problem, and what the current
+state is without it.
+
+## Business objective
+
+The business goal behind the feature. Bulleted, measurable, time-bound where
+possible. Each goal answers "what does success look like?" in business / user
+terms.
 
 - <goal 1 — e.g., "Reduce password-reset support tickets by 40% within 30 days of launch">
 - <goal 2>
 - <goal 3>
+
+## Target environment
+
+Where the feature will run and who/what it touches — platform (web, mobile,
+backend service, CLI, ...), audiences, and any environment constraints that
+shape the requirements. Stay product-side: no infrastructure or architecture
+choices here.
 
 ## User stories
 
@@ -50,21 +63,28 @@ Explicit list of things this feature will **not** do. Protects scope.
 - <Non-goal 1>
 - <Non-goal 2>
 
-## Phased rollout plan
+## Acceptance criteria
 
-- **MVP** — minimum to validate the core hypothesis. Success criterion: <metric>.
-- **Phase 2** — <next slice>. Success criterion: <metric>.
-- **Phase 3** — <next slice>. Success criterion: <metric>.
+Defines whether the feature is done. Each criterion is objective and verifiable.
 
-Each phase ships independently and is usable on its own.
+- [criterion 1]
+- [criterion 2]
+- [criterion 3]
 
-## Success metrics
+---
 
-How we'll know the feature worked. Tie back to the *Goals* section.
+## Tests and validation
 
-- **Engagement**: <metric and target>
-- **Quality**: <metric and target>
-- **Business impact**: <metric and target>
+### Mandatory test types
+
+- [test type 1 — e.g., unit tests for critical business rules]
+- [test type 2 — e.g., integration tests for the main flow]
+- [test type 3 — e.g., security test for price-change permission]
+
+### Validation strategy
+
+- [e.g., TDD for critical stock and pricing logic, scripted manual QA,
+  exploratory validation browsing the storefront with real data]
 
 ## Risks and mitigations
 
@@ -76,17 +96,15 @@ User / product risks only. Technical risks belong in the TechSpec.
 
 ## Architecture Decision Records
 
-References to ADRs created during the brainstorm. The ADR files live in `adrs/`.
+References to ADRs created during the interview. The ADR files live in `adrs/`.
 
 - [ADR-001](adrs/adr-001.md) — <one-line summary>
-- [ADR-002](adrs/adr-002.md) — <one-line summary>
 
 ## Open questions
 
-Things we couldn't decide during the brainstorm. Each one names what needs to happen
+Things we couldn't decide during the interview. Each one names what needs to happen
 to close it.
 
-- <Question> — needs <decision-maker / research / data>.
 - <Question> — needs <decision-maker / research / data>.
 
 ---
