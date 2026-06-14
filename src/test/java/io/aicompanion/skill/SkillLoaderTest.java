@@ -120,7 +120,8 @@ class SkillLoaderTest {
             ADRs: {{adr_dir}}
             Seed: {{seed_file}}
             Update: {{update_mode}}
-            Templates: {{templates_dir}}""";
+            Templates: {{templates_dir}}
+            Shared: {{shared_templates_dir}}""";
         writeSkill(root, "create-prd", "desc", "_prd.md", body);
 
         Path featureDir = tempDir.resolve("features/auth");
@@ -136,6 +137,7 @@ class SkillLoaderTest {
         assertTrue(out.contains("Seed: " + posix(featureDir.resolve("_idea.md"))),      out);
         assertTrue(out.contains("Update: no"),                                          out);
         assertTrue(out.contains("Templates: " + posix(root.resolve("create-prd/references")) + "/"), out);
+        assertTrue(out.contains("Shared: " + posix(root.resolve("_shared/references")) + "/"), out);
 
         assertEquals(featureDir.resolve("_prd.md"), skill.outputFile());
     }

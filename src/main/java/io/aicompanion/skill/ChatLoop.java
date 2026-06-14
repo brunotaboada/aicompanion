@@ -50,6 +50,8 @@ public final class ChatLoop {
         void send(String prompt);
     }
 
+    private static final String PROMPT = "you> ";
+
     private final PromptSender    sender;
     private final UserInput       userInput;
     private final EditorLauncher  editor;
@@ -86,8 +88,11 @@ public final class ChatLoop {
 
         while (true) {
             printTokenCounter(running);
-            String line = userInput.readLine("you> ");
+            String line = userInput.readLine(PROMPT);
             if (line == null) return finish(Outcome.ABORTED, running);
+            // JLine echoed the line at full terminal width; rewrap it so it
+            // stays inside the same right margin as the agent frame.
+            if (console != null) console.reframeUserEcho(PROMPT, line);
 
             String trimmed = line.trim();
 

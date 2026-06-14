@@ -145,6 +145,29 @@ class AgentConsoleTest {
         assertEquals("bbbbbbbbbb", lines.get(1));   // no leading space carried over
     }
 
+    // ── reframedEcho (user input re-wrap) ───────────────────────────────────────
+
+    @Test
+    void reframedEchoWrapsLongLineWithinMargin() {
+        String line = "Here is the thing this a feature to help customer pay for their "
+                    + "products very quickly. it has to be simple to use.";
+        String[] rows = AgentConsole.reframedEcho("you> ", line, 60).split("\n");
+        assertTrue(rows.length > 1);
+        assertTrue(rows[0].startsWith("you> "));
+        for (int i = 1; i < rows.length; i++) {
+            assertTrue(rows[i].startsWith("     "), "continuation not indented: <" + rows[i] + ">");
+        }
+        for (String r : rows) {
+            assertTrue(r.length() <= 60, "row exceeded margin: <" + r + ">");
+        }
+    }
+
+    @Test
+    void reframedEchoKeepsWordsIntact() {
+        String echoed = AgentConsole.reframedEcho("you> ", "alpha beta gamma delta", 15);
+        assertEquals("you> alpha beta\n     gamma\n     delta\n", echoed);
+    }
+
     // ── stripAnsi ───────────────────────────────────────────────────────────────
 
     @Test
