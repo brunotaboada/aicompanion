@@ -116,6 +116,14 @@ public final class AgentConsole {
     // ── streaming output ──────────────────────────────────────────────────────
 
     public void printAgentChunk(String text) {
+        // Agent chunks are markdown/prose — never raw terminal control codes.
+        // A stray escape (e.g. a leaked cursor/scroll sequence like ESC[1;10S)
+        // would both print as garbage and desync the frame's column counter,
+        // punching text past the right │. Strip them at ingestion.
+        text = sanitize(text);
+        // An empty chunk after sanitising must not run the renderer: doing so
+        // would clear a pending text-block break before the next real chunk.
+        if (text.isEmpty()) return;
         if (terminal == null || outputMode == null) {
             appendSummary(text);
             stopActiveSpinner();
@@ -481,6 +489,49 @@ public final class AgentConsole {
         while (end > 0 && line.charAt(end - 1) == ' ') end--;
         lines.add(line.substring(0, end));
         line.setLength(0);
+    }
+
+    /**
+     * Strip terminal control sequences and stray control characters from raw
+     * agent text, keeping only printable content plus {@code \n} and {@code \t}.
+     * Removes full ESC-introduced sequences:
+     * <ul>
+     *   <li>CSI ({@code ESC [ … final}) — final byte in 0x40–0x7E, e.g. colour,
+     *       cursor-move, scroll, erase. Covers the {@code ESC[1;10S} that leaked
+     *       into the stream and broke the frame.</li>
+     *   <li>OSC ({@code ESC ] … BEL|ST}) — title/hyperlink sequences.</li>
+     *   <li>Any other {@code ESC} + one byte (charset selects, etc.).</li>
+     * </ul>
+     * The agent's own markdown ({@code **bold**}) is untouched — our SGR styling
+     * is added later in {@link #renderInline}, after this runs.
+     */
+    static String sanitize(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        int i = 0, n = s.length();
+        while (i < n) {
+            char c = s.charAt(i);
+            if (c == '\033') {                        // ESC: start of a sequence
+                i++;
+                if (i >= n) break;
+                char kind = s.charAt(i++);
+                if (kind == '[') {                    // CSI — run to a final byte
+                    while (i < n && (s.charAt(i) < 0x40 || s.charAt(i) > 0x7E)) i++;
+                    if (i < n) i++;                   // consume the final byte
+                } else if (kind == ']') {             // OSC — run to BEL or ST (ESC \)
+                    while (i < n && s.charAt(i) != '\007'
+                            && !(s.charAt(i) == '\033' && i + 1 < n && s.charAt(i + 1) == '\\')) i++;
+                    if (i < n && s.charAt(i) == '\033') i++;
+                    if (i < n) i++;                   // consume BEL or the '\' of ST
+                }
+                // else: ESC + single byte already consumed
+                continue;
+            }
+            if (c == '\n' || c == '\t') { b.append(c); i++; continue; }
+            if (c < 0x20 || c == 0x7F)  { i++; continue; }   // drop other C0/DEL
+            b.append(c);
+            i++;
+        }
+        return b.toString();
     }
 
     /** Remove ANSI SGR escapes, leaving only visible characters. */

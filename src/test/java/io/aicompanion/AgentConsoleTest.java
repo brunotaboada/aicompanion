@@ -168,6 +168,36 @@ class AgentConsoleTest {
         assertEquals("you> alpha beta\n     gamma\n     delta\n", echoed);
     }
 
+    // ── sanitize (strip stray control codes from agent text) ────────────────────
+
+    @Test
+    void sanitizeRemovesLeakedCsiSequence() {
+        // The exact escape that leaked into the stream and broke the frame.
+        String in = "any ADRs:\033[1;10SPerfect. No seed document.";
+        assertEquals("any ADRs:Perfect. No seed document.", AgentConsole.sanitize(in));
+    }
+
+    @Test
+    void sanitizeStripsCursorAndEraseSequences() {
+        assertEquals("ab", AgentConsole.sanitize("a\033[2J\033[Hb"));
+    }
+
+    @Test
+    void sanitizeStripsOscTitleSequence() {
+        assertEquals("hi", AgentConsole.sanitize("h\033]0;window title\007i"));
+    }
+
+    @Test
+    void sanitizeKeepsNewlinesTabsAndPrintableText() {
+        String in = "# Heading\n- bullet\twith **bold**";
+        assertEquals(in, AgentConsole.sanitize(in));
+    }
+
+    @Test
+    void sanitizeDropsStrayControlCharsButKeepsText() {
+        assertEquals("ab", AgentConsole.sanitize("a\rb"));   // bare CR dropped
+    }
+
     // ── stripAnsi ───────────────────────────────────────────────────────────────
 
     @Test

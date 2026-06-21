@@ -49,22 +49,25 @@ public final class AcpClientFactory {
                 var update = notification.update();
                 if (update instanceof AgentMessageChunk msg) {
                     console.printAgentChunk(((TextContent) msg.content()).text());
-                } else if (update instanceof AgentThoughtChunk thought
-                        && config.logThoughts()) {
-                    console.logEvent(Ansi.dim("[working] "
-                        + ((TextContent) thought.content()).text().trim()));
+                    return;
+                }
+                // Anything that is not visible agent text interrupts the current
+                // text block: tool calls, tool-call updates, plans, available-command
+                // lists, thoughts. Mark a break so the next visible text block is
+                // separated (a stray space) instead of gluing onto the previous one
+                // — "…interview." + "Let me…" → "…interview. Let me…". Idempotent,
+                // and a no-op before any text has streamed.
+                console.markTextBlockBreak();
+                if (update instanceof AgentThoughtChunk thought) {
+                    if (config.logThoughts()) {
+                        console.logEvent(Ansi.dim("[working] "
+                            + ((TextContent) thought.content()).text().trim()));
+                    }
                 } else if (update instanceof ToolCall tc) {
-                    // A tool call ends the current text block; mark a break so the
-                    // next text block doesn't glue onto the previous one on screen
-                    // or in the transcript. Done regardless of tool-call logging.
-                    console.markTextBlockBreak();
                     if (config.logToolCalls()) {
                         console.logEvent(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
                     }
                 } else if (update instanceof ToolCallUpdateNotification tcu) {
-                    // Some agents only emit update notifications (no initial
-                    // ToolCall); mark the break here too. Idempotent.
-                    console.markTextBlockBreak();
                     if (config.logToolCalls()) {
                         console.logEvent(Ansi.dim("[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
                     }
