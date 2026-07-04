@@ -18,6 +18,7 @@ import io.aicompanion.agent.AgentSpec;
 import io.aicompanion.agent.SessionStats;
 import io.aicompanion.config.Config;
 import io.aicompanion.console.Ansi;
+import io.aicompanion.console.StatusBar;
 import io.aicompanion.util.TokenEstimator;
 import java.io.IOException;
 import java.nio.file.*;
@@ -47,6 +48,9 @@ public class TaskRunner {
     /** Agent-reported usage and touched files, fed by the ACP consumer thread. */
     private final SessionStats stats = new SessionStats();
 
+    /** Bottom-row live status (agent/model/task/tests/fix); no-op without a terminal. */
+    private final StatusBar status;
+
     public TaskRunner(Config config) {
         this(config, RunOptions.defaults(), null);
     }
@@ -56,10 +60,16 @@ public class TaskRunner {
     }
 
     public TaskRunner(Config config, RunOptions runOptions, Terminal terminal) {
+        this(config, runOptions, terminal, null);
+    }
+
+    public TaskRunner(Config config, RunOptions runOptions, Terminal terminal,
+                      StatusBar statusBar) {
         this.config        = config;
         this.runOptions    = runOptions;
         this.console       = new AgentConsole(terminal);
         this.batchResolver = new BatchResolver(config);
+        this.status        = statusBar != null ? statusBar : StatusBar.attach(null);
     }
 
     public void run() throws Exception {
@@ -90,6 +100,11 @@ public class TaskRunner {
         RunState state = RunState.load();
         state.setFeaturesDir(config.featuresDir());
         int wouldSkip = announceResume(state, batches);
+
+        status.setAgent(spec.id());
+        if (config.model() != null && !config.model().isBlank()) {
+            status.setModel(config.model());
+        }
 
         System.out.println("Agent   : " + spec.id());
         System.out.println("Features: " + batches.size()
@@ -180,7 +195,11 @@ public class TaskRunner {
             String taskContent = Files.readString(taskPath);
             String taskHash    = RunState.hash(taskContent);
 
+            status.setTask(globalIdx, totalTasks, displayName);
+            status.clearFix();
+
             if (state.shouldSkip(stateKey, taskHash, runOptions.retryFailed())) {
+                status.setTestsSkipped();
                 System.out.printf("%s %d/%d: %s %s%n",
                     Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName),
                     Ansi.green("✓ skipped (already "
@@ -199,6 +218,7 @@ public class TaskRunner {
                     Ansi.dim("(pre-check)"));
                 TestVerifier.Result pre = runTestsWithSpinner(verifier, "Pre-check tests");
                 if (pre.passed()) {
+                    status.setTestsPass();
                     System.out.println(Ansi.green(
                         "✓ Tests already pass — skipping agent call.\n"));
                     state.markPassed(stateKey, taskHash);
@@ -269,6 +289,7 @@ public class TaskRunner {
                                     String stateKey, String taskHash,
                                     String displayName) {
         if (!config.testEnabled()) {
+            status.setTestsSkipped();
             state.markPassed(stateKey, taskHash);
             return true;
         }
@@ -277,6 +298,8 @@ public class TaskRunner {
         int attempt = 0;
         while (!result.passed() && attempt < config.maxFixAttempts()) {
             attempt++;
+            status.setTestsFail();
+            status.setFix(attempt, config.maxFixAttempts());
             System.out.printf("%s Tests FAILED — fix attempt %d/%d%n",
                 Ansi.red("✗"), attempt, config.maxFixAttempts());
             System.out.println(result.output());
@@ -296,12 +319,14 @@ public class TaskRunner {
         }
 
         if (result.passed()) {
+            status.setTestsPass();
             System.out.println(attempt == 0
                 ? Ansi.green("✓ Tests passed") + "\n"
                 : Ansi.green("✓ Tests passed") + " after " + attempt + " fix attempt(s)\n");
             state.markPassed(stateKey, taskHash);
             return true;
         } else {
+            status.setTestsFail();
             System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
                 Ansi.red("✗"), config.maxFixAttempts());
             System.out.println(result.output());
@@ -431,6 +456,7 @@ public class TaskRunner {
     }
 
     private TestVerifier.Result runTestsWithSpinner(TestVerifier verifier, String label) {
+        status.setTestsRunning();
         console.startSpinner(label);
         try {
             return verifier.run();
@@ -549,10 +575,12 @@ public class TaskRunner {
             return;
         }
         if (match.modelId().equals(modelState.currentModelId())) {
+            status.setModel(AgentRegistry.modelLabel(match));
             System.out.println("[model] using " + AgentRegistry.modelLabel(match) + " (already active)");
             return;
         }
         client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
+        status.setModel(AgentRegistry.modelLabel(match));
         System.out.println("[model] switched to " + AgentRegistry.modelLabel(match));
     }
 }
