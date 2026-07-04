@@ -270,7 +270,7 @@ public final class AgentConsole {
             if (word.equals("-") || word.equals("*")) {
                 if (agentLineStart) { out.append(GUTTER); agentLineStart = false; }
                 out.append("• ");
-                visualCol = 2;
+                visualCol += 2;   // preserve leading indentation already counted in visualCol
                 return;  // marker replaced by bullet glyph
             }
         }

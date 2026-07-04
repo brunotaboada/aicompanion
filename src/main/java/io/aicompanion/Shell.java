@@ -4,6 +4,7 @@ import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.config.Config;
 import io.aicompanion.config.ConfigLoader;
 import io.aicompanion.console.Ansi;
+import io.aicompanion.console.StatusBar;
 import io.aicompanion.skill.*;
 import org.jline.reader.*;
 import org.jline.reader.impl.DefaultParser;
@@ -15,6 +16,10 @@ import org.jline.terminal.*;
 import org.jline.terminal.Terminal.Signal;
 import org.jline.terminal.Terminal.SignalHandler;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 
@@ -29,6 +34,7 @@ public class Shell {
 
     private static final List<String> RUN_FLAGS = List.of(
         "--features", "--agent", "--model", "--project", "--test-command",
+        "--test-timeout",
         "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
         "--fresh", "--retry-failed",
         "--pre-check-tests", "--task-preamble-strip", "--init-instructions",
@@ -153,13 +159,26 @@ public class Shell {
             ? config
             : ConfigLoader.load(parsed.configOverrides());
 
-        // Route Ctrl+C during the run to a thread interrupt so the runner can
-        // bail out at the next task boundary. Restore the previous handler on
-        // exit so the next readLine() behaves normally.
+        // Pin a status bar at the bottom of the screen for the duration of
+        // the run, then route Ctrl+C to a thread interrupt so the runner can
+        // bail out at the next task boundary. Both are torn down in finally
+        // so the next readLine() behaves normally.
+        StatusBar bar = StatusBar.attach(terminal);
         Thread runner = Thread.currentThread();
         SignalHandler previous = terminal.handle(Signal.INT, sig -> runner.interrupt());
+
+        // Redirect stdout/stderr through the JLine terminal writer. Combined
+        // with StatusBar's DECSTBM scroll region, this keeps streamed output
+        // in rows 1..H-1 and pinned status on row H. Restored in finally so
+        // the prompt's normal output path is intact for the next readLine.
+        PrintStream origOut = System.out;
+        PrintStream origErr = System.err;
+        PrintStream routed  = jlinePrintStream(terminal);
+        System.setOut(routed);
+        System.setErr(routed);
+
         try {
-            new TaskRunner(effective, parsed.runOptions(), terminal).run();
+            new TaskRunner(effective, parsed.runOptions(), terminal, bar).run();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println(Ansi.yellow("\nAborted."));
@@ -170,10 +189,33 @@ public class Shell {
                 System.err.println(Ansi.red("Error: " + msg(e)));
             }
         } finally {
+            // Tear down the status row first (still through the routed stream
+            // so its escape sequences serialize with any pending output),
+            // then restore stdout/stderr and the signal handler.
+            bar.close();
+            System.setOut(origOut);
+            System.setErr(origErr);
             terminal.handle(Signal.INT, previous);
             // Clear any lingering interrupt status so the next readLine works.
             Thread.interrupted();
         }
+    }
+
+    /** Bridge a PrintStream onto the JLine terminal's PrintWriter (UTF-8, autoflush). */
+    private static PrintStream jlinePrintStream(Terminal terminal) {
+        PrintWriter w = terminal.writer();
+        OutputStream os = new OutputStream() {
+            @Override public void write(int b) {
+                w.write(b);
+            }
+            @Override public void write(byte[] buf, int off, int len) {
+                w.write(new String(buf, off, len, StandardCharsets.UTF_8));
+            }
+            @Override public void flush() {
+                w.flush();
+            }
+        };
+        return new PrintStream(os, true, StandardCharsets.UTF_8);
     }
 
     private void handleSkills() {
@@ -430,6 +472,7 @@ public class Shell {
         row("project_dir",         config.projectDir());
         row("test_command",        config.testCommand()  != null ? config.testCommand() : "(auto-detect)");
         row("test_enabled",        String.valueOf(config.testEnabled()));
+        row("test_timeout_min",    String.valueOf(config.testTimeoutMin()));
         row("stop_on_failure",     String.valueOf(config.stopOnFailure()));
         row("max_fix_attempts",    String.valueOf(config.maxFixAttempts()));
         row("session_timeout_min", String.valueOf(config.sessionTimeoutMin()));

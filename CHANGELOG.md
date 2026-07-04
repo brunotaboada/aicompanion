@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- **Live status bar** — REPL `run` pins a bottom-row status bar (agent / model / task / tests / fix state) using a DECSTBM scroll region so streamed agent output never collides with it; no-op on dumb/no-TTY terminals. Ported from the `claude/console-ux-improvements-kTU2m` branch onto the current architecture (that branch was cut from a pre-skills snapshot and should be closed unmerged)
+- **Test command timeout** — new `test_timeout_min` setting (`--test-timeout` flag, default 30 minutes, `0` = no limit): the test command is killed (with all its descendants) when it exceeds the limit and the task is treated as failed with the partial output, instead of hanging the run forever
+- **Agent-reported token usage** — when the agent streams ACP usage updates, the run summary and the `max_tokens_per_run` budget use the agent's exact token counts (and cost, when reported) instead of the ~4-chars/token estimate; the estimator remains the fallback for agents that don't report usage
+- **Touched-file context in fix prompts** — files the agent created or modified during a task (ACP writes plus edit/delete/move tool-call locations) are listed in fix-loop prompts as likely culprits, so fix attempts start from the agent's own changes instead of a fresh repo exploration
 - **Interactive skill commands** that prepare a feature for `run`:
   - `create-prd <feature>` — guided brainstorming → `features/<feature>/_prd.md` (+ `adrs/`)
   - `create-tech-spec <feature>` — technical clarification → `features/<feature>/_techspec.md`
@@ -15,6 +19,11 @@
 - **Chat sentinels** — `/abort`, `/done`, `/skip`, `/edit` (opens `$EDITOR`) intercepted by the chat loop
 - **Per-skill transcript** — every chat turn appended to `features/<feature>/_<skill>.transcript.md` for debugging
 - Three canonical skill bundles under `.agents/skills/` (PRD, TechSpec, tasks) with reference templates (PRD, TechSpec, ADR, question-protocol, task, task-context-schema)
+
+### Fixed
+- Escape sequences in `Spinner` (and the new `StatusBar`) now use explicit `\u001b` literals instead of invisible raw ESC bytes embedded in the source
+- `RunState` is now written atomically (write-to-temp + rename), so a crash mid-save can no longer corrupt `.aicompanion/state.yml` and silently wipe all resume state
+- A test-runner I/O error no longer marks the runner thread as interrupted, which could misreport the next task as "aborted by user"; interrupts during a test run now kill the test process tree and report as interrupted
 
 ### Changed
 - `AcpClientFactory` extracted from `TaskRunner` so both autonomous task execution and interactive skill chats share the same read/write/permission handlers

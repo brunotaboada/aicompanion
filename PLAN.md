@@ -56,6 +56,7 @@ CLI flags and environment variables (`AICOMPANION_<KEY>`) override the file.
 | `project_dir` | `.` | Project root passed to the agent session |
 | `test_command` | auto-detect | Shell command to run tests |
 | `test_enabled` | `true` | Run tests after each task |
+| `test_timeout_min` | `30` | Kill the test command after N minutes (0 = no limit) |
 | `stop_on_failure` | `true` | Stop on first test failure |
 | `max_fix_attempts` | `3` | Fix-loop retries per task |
 | `session_timeout_min` | `10` | ACP session timeout per task (minutes) |

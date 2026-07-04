@@ -12,7 +12,10 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.ReadTextFileResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.RequestPermissionResponse;
 import com.agentclientprotocol.sdk.spec.AcpSchema.TextContent;
 import com.agentclientprotocol.sdk.spec.AcpSchema.ToolCall;
+import com.agentclientprotocol.sdk.spec.AcpSchema.ToolCallLocation;
 import com.agentclientprotocol.sdk.spec.AcpSchema.ToolCallUpdateNotification;
+import com.agentclientprotocol.sdk.spec.AcpSchema.ToolKind;
+import com.agentclientprotocol.sdk.spec.AcpSchema.UsageUpdate;
 import com.agentclientprotocol.sdk.spec.AcpSchema.WriteTextFileResponse;
 import io.aicompanion.AgentConsole;
 import io.aicompanion.config.Config;
@@ -41,6 +44,13 @@ public final class AcpClientFactory {
     public static AcpSyncClient build(StdioAcpClientTransport transport,
                                        Config config,
                                        AgentConsole console) {
+        return build(transport, config, console, new SessionStats());
+    }
+
+    public static AcpSyncClient build(StdioAcpClientTransport transport,
+                                       Config config,
+                                       AgentConsole console,
+                                       SessionStats stats) {
         return AcpClient.sync(transport)
             .requestTimeout(Duration.ofMinutes(config.sessionTimeoutMin()))
 
@@ -49,6 +59,13 @@ public final class AcpClientFactory {
                 var update = notification.update();
                 if (update instanceof AgentMessageChunk msg) {
                     console.printAgentChunk(((TextContent) msg.content()).text());
+                    return;
+                }
+                // Usage reports are invisible metadata that can arrive between
+                // chunks of one text block — record them without marking a
+                // text-block break, which would inject stray spaces.
+                if (update instanceof UsageUpdate usage) {
+                    stats.recordUsage(usage);
                     return;
                 }
                 // Anything that is not visible agent text interrupts the current
@@ -64,10 +81,12 @@ public final class AcpClientFactory {
                             + ((TextContent) thought.content()).text().trim()));
                     }
                 } else if (update instanceof ToolCall tc) {
+                    recordTouchedLocations(stats, tc.kind(), tc.locations());
                     if (config.logToolCalls()) {
                         console.logEvent(Ansi.dim("[tool:" + tc.kind() + "] " + tc.title()));
                     }
                 } else if (update instanceof ToolCallUpdateNotification tcu) {
+                    recordTouchedLocations(stats, tcu.kind(), tcu.locations());
                     if (config.logToolCalls()) {
                         console.logEvent(Ansi.dim("[tool:" + tcu.toolCallId() + "] → " + tcu.status()));
                     }
@@ -93,6 +112,7 @@ public final class AcpClientFactory {
                     Path p = Path.of(req.path());
                     if (p.getParent() != null) Files.createDirectories(p.getParent());
                     Files.writeString(p, req.content());
+                    stats.recordTouched(req.path());
                     return new WriteTextFileResponse();
                 } catch (IOException e) {
                     throw new RuntimeException(
@@ -117,5 +137,15 @@ public final class AcpClientFactory {
             })
 
             .build();
+    }
+
+    /** Track file paths from mutating tool calls so fix prompts can name them. */
+    private static void recordTouchedLocations(SessionStats stats, ToolKind kind,
+                                               List<ToolCallLocation> locations) {
+        if (locations == null || locations.isEmpty()) return;
+        if (kind != ToolKind.EDIT && kind != ToolKind.DELETE && kind != ToolKind.MOVE) return;
+        for (ToolCallLocation loc : locations) {
+            stats.recordTouched(loc.path());
+        }
     }
 }

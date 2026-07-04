@@ -3,7 +3,6 @@ package io.aicompanion;
 import io.aicompanion.config.Config;
 import io.aicompanion.config.ConfigLoader;
 import io.aicompanion.skill.*;
-import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;

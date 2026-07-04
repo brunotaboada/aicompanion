@@ -386,6 +386,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `project_dir` | `.` | Project root passed to the agent ACP session |
 | `test_command` | auto-detect | Command to run your tests |
 | `test_enabled` | `true` | Run tests after each task |
+| `test_timeout_min` | `30` | Kill the test command after N minutes and treat it as a failure (`0` = no limit) |
 | `stop_on_failure` | `true` | Stop the run if tests still fail after `max_fix_attempts` |
 | `max_fix_attempts` | `3` | On test failure, feed the output back to the agent and retry up to N times (`0` disables auto-fix) |
 | `session_timeout_min` | `10` | ACP session timeout per task (minutes) |

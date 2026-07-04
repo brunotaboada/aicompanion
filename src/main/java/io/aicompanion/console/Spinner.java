@@ -11,7 +11,7 @@ public final class Spinner {
         "⠴","⠦","⠧","⠇","⠏"
     };
     private static final long FRAME_MS = 80;
-    private static final String CLEAR_LINE = "\r[K";
+    private static final String CLEAR_LINE = "\r\u001b[K";
 
     private final String message;
     private volatile boolean running;

@@ -30,6 +30,7 @@ project_dir: .               # project root passed to the agent ACP session
 
 # test_command: mvn test -q  # defaults: auto-detect from pom.xml / package.json / Makefile
 test_enabled: true            # run tests after each task
+test_timeout_min: 30          # kill the test command after N minutes, counting it as a failure (0 = no limit)
 stop_on_failure: true         # stop the whole run if tests still fail after max_fix_attempts
 max_fix_attempts: 3           # on test failure, feed the output back to the agent and retry up to N times (0 = disable)
 

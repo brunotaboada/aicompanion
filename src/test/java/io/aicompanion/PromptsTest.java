@@ -26,7 +26,7 @@ class PromptsTest {
     void forFixTruncatesLongOutput() {
         StringBuilder big = new StringBuilder();
         for (int i = 0; i < 1000; i++) big.append("line ").append(i).append('\n');
-        String fix = Prompts.forFix("mvn test", big.toString(), 200);
+        String fix = Prompts.forFix("mvn test", big.toString(), 200, java.util.List.of());
         assertTrue(fix.contains("line(s) elided"),
             "long output should be elided in the middle");
         // Roughly: header lines + 200 retained + ellipsis + footer < 1000 lines.
@@ -39,9 +39,38 @@ class PromptsTest {
     void forFixUnlimitedWhenMaxLinesIsZero() {
         StringBuilder big = new StringBuilder();
         for (int i = 0; i < 50; i++) big.append("err ").append(i).append('\n');
-        String fix = Prompts.forFix("mvn test", big.toString(), 0);
+        String fix = Prompts.forFix("mvn test", big.toString(), 0, java.util.List.of());
         assertFalse(fix.contains("line(s) elided"));
         for (int i = 0; i < 50; i++) assertTrue(fix.contains("err " + i));
+    }
+
+    @Test
+    void forFixListsTouchedFiles() {
+        String fix = Prompts.forFix("mvn test", "boom", 0,
+            java.util.List.of("src/A.java", "src/B.java"));
+        assertTrue(fix.contains("src/A.java"));
+        assertTrue(fix.contains("src/B.java"));
+        assertTrue(fix.contains("created or modified"));
+    }
+
+    @Test
+    void forFixOmitsTouchedFilesSectionWhenEmpty() {
+        String fix = Prompts.forFix("mvn test", "boom", 0, java.util.List.of());
+        assertFalse(fix.contains("created or modified"));
+        String fixNull = Prompts.forFix("mvn test", "boom", 0, null);
+        assertFalse(fixNull.contains("created or modified"));
+    }
+
+    @Test
+    void touchedFilesSectionCapsLongLists() {
+        java.util.List<String> many = new java.util.ArrayList<>();
+        for (int i = 0; i < Prompts.TOUCHED_FILES_CAP + 5; i++) many.add("f" + i + ".java");
+        String section = Prompts.touchedFilesSection(many);
+        assertTrue(section.contains("f0.java"));
+        assertTrue(section.contains("f" + (Prompts.TOUCHED_FILES_CAP - 1) + ".java"));
+        assertFalse(section.contains("f" + (Prompts.TOUCHED_FILES_CAP + 1) + ".java\n"),
+            "files past the cap should be elided");
+        assertTrue(section.contains("and 5 more"));
     }
 
     @Test

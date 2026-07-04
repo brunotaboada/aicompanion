@@ -13,6 +13,7 @@ public record Config(
     String       projectDir,
     String       testCommand,
     boolean      testEnabled,
+    int          testTimeoutMin,
     boolean      stopOnFailure,
     int          maxFixAttempts,
     int          sessionTimeoutMin,
@@ -35,7 +36,7 @@ public record Config(
     public static final List<String> KEYS = List.of(
         "agent", "model", "agent_extra_args", "features_dir",
         "task_extensions", "task_sort", "project_dir", "test_command",
-        "test_enabled", "stop_on_failure", "max_fix_attempts", "session_timeout_min",
+        "test_enabled", "test_timeout_min", "stop_on_failure", "max_fix_attempts", "session_timeout_min",
         "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
         "log_thoughts", "yolo",
         "fix_output_max_lines", "task_preamble_strip", "compact_after_n_tasks",

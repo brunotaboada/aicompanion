@@ -15,8 +15,10 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.TextContent;
 import io.aicompanion.agent.AcpClientFactory;
 import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.agent.AgentSpec;
+import io.aicompanion.agent.SessionStats;
 import io.aicompanion.config.Config;
 import io.aicompanion.console.Ansi;
+import io.aicompanion.console.StatusBar;
 import io.aicompanion.util.TokenEstimator;
 import java.io.IOException;
 import java.nio.file.*;
@@ -39,9 +41,15 @@ public class TaskRunner {
     /** Names of tasks completed since the last compaction — handed off to the next session. */
     private final List<String> recentTaskNames = new ArrayList<>();
 
-    /** Running totals across the whole run (estimated). */
+    /** Running totals across the whole run (estimated fallback). */
     private long inputTokens  = 0;
     private long outputTokens = 0;
+
+    /** Agent-reported usage and touched files, fed by the ACP consumer thread. */
+    private final SessionStats stats = new SessionStats();
+
+    /** Bottom-row live status (agent/model/task/tests/fix); no-op without a terminal. */
+    private final StatusBar status;
 
     public TaskRunner(Config config) {
         this(config, RunOptions.defaults(), null);
@@ -52,10 +60,16 @@ public class TaskRunner {
     }
 
     public TaskRunner(Config config, RunOptions runOptions, Terminal terminal) {
+        this(config, runOptions, terminal, null);
+    }
+
+    public TaskRunner(Config config, RunOptions runOptions, Terminal terminal,
+                      StatusBar statusBar) {
         this.config        = config;
         this.runOptions    = runOptions;
         this.console       = new AgentConsole(terminal);
         this.batchResolver = new BatchResolver(config);
+        this.status        = statusBar != null ? statusBar : StatusBar.attach(null);
     }
 
     public void run() throws Exception {
@@ -77,7 +91,7 @@ public class TaskRunner {
 
         AgentSpec spec    = AgentRegistry.resolve(config);
         Path      projDir = Path.of(config.projectDir()).toAbsolutePath();
-        var       verifier = new TestVerifier(config.testCommand(), projDir);
+        var       verifier = new TestVerifier(config.testCommand(), projDir, config.testTimeoutMin());
         var       reporter = new Reporter(config);
 
         if (runOptions.fresh()) {
@@ -86,6 +100,11 @@ public class TaskRunner {
         RunState state = RunState.load();
         state.setFeaturesDir(config.featuresDir());
         int wouldSkip = announceResume(state, batches);
+
+        status.setAgent(spec.id());
+        if (config.model() != null && !config.model().isBlank()) {
+            status.setModel(config.model());
+        }
 
         System.out.println("Agent   : " + spec.id());
         System.out.println("Features: " + batches.size()
@@ -176,7 +195,11 @@ public class TaskRunner {
             String taskContent = Files.readString(taskPath);
             String taskHash    = RunState.hash(taskContent);
 
+            status.setTask(globalIdx, totalTasks, displayName);
+            status.clearFix();
+
             if (state.shouldSkip(stateKey, taskHash, runOptions.retryFailed())) {
+                status.setTestsSkipped();
                 System.out.printf("%s %d/%d: %s %s%n",
                     Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName),
                     Ansi.green("✓ skipped (already "
@@ -195,6 +218,7 @@ public class TaskRunner {
                     Ansi.dim("(pre-check)"));
                 TestVerifier.Result pre = runTestsWithSpinner(verifier, "Pre-check tests");
                 if (pre.passed()) {
+                    status.setTestsPass();
                     System.out.println(Ansi.green(
                         "✓ Tests already pass — skipping agent call.\n"));
                     state.markPassed(stateKey, taskHash);
@@ -212,6 +236,10 @@ public class TaskRunner {
             System.out.printf("%s %d/%d: %s%n",
                 Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName));
             System.out.println(Ansi.rule());
+
+            // Touched files are tracked per task: fix prompts list what this
+            // task's agent turns changed, not leftovers from earlier tasks.
+            stats.resetTouched();
 
             String taskBody = config.taskPreambleStrip()
                 ? Prompts.stripPreamble(taskContent)
@@ -238,8 +266,8 @@ public class TaskRunner {
 
             if (budgetExceeded()) {
                 System.out.println(Ansi.yellow(
-                    "Stopping — estimated token budget exceeded ("
-                        + (inputTokens + outputTokens) + " / "
+                    "Stopping — token budget exceeded ("
+                        + tokensUsedForBudget() + " / "
                         + config.maxTokensPerRun() + ")."));
                 printTokenSummary();
                 return false;
@@ -261,6 +289,7 @@ public class TaskRunner {
                                     String stateKey, String taskHash,
                                     String displayName) {
         if (!config.testEnabled()) {
+            status.setTestsSkipped();
             state.markPassed(stateKey, taskHash);
             return true;
         }
@@ -269,15 +298,17 @@ public class TaskRunner {
         int attempt = 0;
         while (!result.passed() && attempt < config.maxFixAttempts()) {
             attempt++;
+            status.setTestsFail();
+            status.setFix(attempt, config.maxFixAttempts());
             System.out.printf("%s Tests FAILED — fix attempt %d/%d%n",
                 Ansi.red("✗"), attempt, config.maxFixAttempts());
             System.out.println(result.output());
 
             String fixPrompt = config.initInstructions()
                 ? Prompts.forFixShort(config.testCommand(), result.output(),
-                    config.fixOutputMaxLines())
+                    config.fixOutputMaxLines(), stats.touchedFiles())
                 : Prompts.forFix(config.testCommand(), result.output(),
-                    config.fixOutputMaxLines());
+                    config.fixOutputMaxLines(), stats.touchedFiles());
 
             String fixStop = sendPrompt(client,
                 "agent working (fix attempt " + attempt + ")", fixPrompt);
@@ -288,12 +319,14 @@ public class TaskRunner {
         }
 
         if (result.passed()) {
+            status.setTestsPass();
             System.out.println(attempt == 0
                 ? Ansi.green("✓ Tests passed") + "\n"
                 : Ansi.green("✓ Tests passed") + " after " + attempt + " fix attempt(s)\n");
             state.markPassed(stateKey, taskHash);
             return true;
         } else {
+            status.setTestsFail();
             System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
                 Ansi.red("✗"), config.maxFixAttempts());
             System.out.println(result.output());
@@ -323,6 +356,9 @@ public class TaskRunner {
         int threshold = config.compactAfterNTasks();
         if (threshold <= 0 || tasksInCurrentSession < threshold) return;
         try {
+            // Bank the old session's figures before opening a fresh one — the ACP
+            // consumer may apply the new session's usage_update immediately.
+            stats.rolloverSession();
             NewSessionResponse fresh = client.newSession(
                 new NewSessionRequest(projDir.toString(), List.of()));
             currentSessionId = fresh.sessionId();
@@ -345,7 +381,18 @@ public class TaskRunner {
     private boolean budgetExceeded() {
         int budget = config.maxTokensPerRun();
         if (budget <= 0) return false;
-        return (inputTokens + outputTokens) >= budget;
+        return tokensUsedForBudget() >= budget;
+    }
+
+    /**
+     * Tokens counted against {@code max_tokens_per_run}: the agent's own usage
+     * reports when it sends them (exact), otherwise the chars/4 estimate of
+     * prompts + streamed summaries.
+     */
+    private long tokensUsedForBudget() {
+        return stats.hasReportedUsage()
+            ? stats.totalUsedTokens()
+            : inputTokens + outputTokens;
     }
 
     /**
@@ -392,12 +439,24 @@ public class TaskRunner {
     }
 
     private void printTokenSummary() {
+        if (stats.hasReportedUsage()) {
+            StringBuilder line = new StringBuilder("agent-reported: ")
+                .append(stats.totalUsedTokens()).append(" tokens used");
+            Double cost = stats.totalCost();
+            if (cost != null) {
+                line.append(", cost ").append(String.format("%.4f", cost));
+                if (stats.costCurrency() != null) line.append(' ').append(stats.costCurrency());
+            }
+            System.out.println(Ansi.dim("[tokens] ") + line);
+            return;
+        }
         long total = inputTokens + outputTokens;
-        System.out.printf("%s ~%d in, ~%d out, ~%d total%n",
+        System.out.printf("%s ~%d in, ~%d out, ~%d total (estimated)%n",
             Ansi.dim("[tokens]"), inputTokens, outputTokens, total);
     }
 
     private TestVerifier.Result runTestsWithSpinner(TestVerifier verifier, String label) {
+        status.setTestsRunning();
         console.startSpinner(label);
         try {
             return verifier.run();
@@ -490,7 +549,7 @@ public class TaskRunner {
     }
 
     private AcpSyncClient buildClient(StdioAcpClientTransport transport) {
-        return AcpClientFactory.build(transport, config, console);
+        return AcpClientFactory.build(transport, config, console, stats);
     }
 
     /**
@@ -516,10 +575,12 @@ public class TaskRunner {
             return;
         }
         if (match.modelId().equals(modelState.currentModelId())) {
+            status.setModel(AgentRegistry.modelLabel(match));
             System.out.println("[model] using " + AgentRegistry.modelLabel(match) + " (already active)");
             return;
         }
         client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
+        status.setModel(AgentRegistry.modelLabel(match));
         System.out.println("[model] switched to " + AgentRegistry.modelLabel(match));
     }
 }
