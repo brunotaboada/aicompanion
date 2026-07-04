@@ -23,7 +23,19 @@ class PlatformTest {
     }
 
     @Test
-    void currentOsIsNeverBothWindowsAndMac() {
-        assertFalse(Platform.isWindows() && Platform.isMac());
+    void detectsLinuxFromOsName() {
+        assertTrue(Platform.isLinux("Linux"));
+        assertTrue(Platform.isLinux("GNU/Linux"));
+        assertFalse(Platform.isLinux("Mac OS X"));
+        assertFalse(Platform.isLinux("Windows 11"));
+    }
+
+    @Test
+    void currentOsMatchesAtMostOneDetector() {
+        int matches = (Platform.isWindows() ? 1 : 0)
+                    + (Platform.isMac()     ? 1 : 0)
+                    + (Platform.isLinux()   ? 1 : 0);
+        assertTrue(matches <= 1,
+            "isWindows/isMac/isLinux must be mutually exclusive on any real OS");
     }
 }

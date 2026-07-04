@@ -17,12 +17,20 @@ public final class Platform {
         return isMac(System.getProperty("os.name", ""));
     }
 
+    public static boolean isLinux() {
+        return isLinux(System.getProperty("os.name", ""));
+    }
+
     static boolean isWindows(String osName) {
         return osName.toLowerCase().startsWith("windows");
     }
 
     static boolean isMac(String osName) {
         return osName.toLowerCase().contains("mac");
+    }
+
+    static boolean isLinux(String osName) {
+        return osName.toLowerCase().contains("linux");
     }
 
     /** Resolve `name` against PATH, applying PATHEXT on Windows. Returns null if not found. */
