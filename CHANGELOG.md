@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- **Test command timeout** — new `test_timeout_min` setting (`--test-timeout` flag, default 30 minutes, `0` = no limit): the test command is killed (with all its descendants) when it exceeds the limit and the task is treated as failed with the partial output, instead of hanging the run forever
+- **Agent-reported token usage** — when the agent streams ACP usage updates, the run summary and the `max_tokens_per_run` budget use the agent's exact token counts (and cost, when reported) instead of the ~4-chars/token estimate; the estimator remains the fallback for agents that don't report usage
+- **Touched-file context in fix prompts** — files the agent created or modified during a task (ACP writes plus edit/delete/move tool-call locations) are listed in fix-loop prompts as likely culprits, so fix attempts start from the agent's own changes instead of a fresh repo exploration
+
+### Fixed
+- `RunState` is now written atomically (write-to-temp + rename), so a crash mid-save can no longer corrupt `.aicompanion/state.yml` and silently wipe all resume state
+- A test-runner I/O error no longer marks the runner thread as interrupted, which could misreport the next task as "aborted by user"; interrupts during a test run now kill the test process tree and report as interrupted
 - **Interactive skill commands** that prepare a feature for `run`:
   - `create-prd <feature>` — guided brainstorming → `features/<feature>/_prd.md` (+ `adrs/`)
   - `create-tech-spec <feature>` — technical clarification → `features/<feature>/_techspec.md`

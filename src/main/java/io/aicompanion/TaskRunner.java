@@ -15,6 +15,7 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.TextContent;
 import io.aicompanion.agent.AcpClientFactory;
 import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.agent.AgentSpec;
+import io.aicompanion.agent.SessionStats;
 import io.aicompanion.config.Config;
 import io.aicompanion.console.Ansi;
 import io.aicompanion.util.TokenEstimator;
@@ -39,9 +40,12 @@ public class TaskRunner {
     /** Names of tasks completed since the last compaction — handed off to the next session. */
     private final List<String> recentTaskNames = new ArrayList<>();
 
-    /** Running totals across the whole run (estimated). */
+    /** Running totals across the whole run (estimated fallback). */
     private long inputTokens  = 0;
     private long outputTokens = 0;
+
+    /** Agent-reported usage and touched files, fed by the ACP consumer thread. */
+    private final SessionStats stats = new SessionStats();
 
     public TaskRunner(Config config) {
         this(config, RunOptions.defaults(), null);
@@ -77,7 +81,7 @@ public class TaskRunner {
 
         AgentSpec spec    = AgentRegistry.resolve(config);
         Path      projDir = Path.of(config.projectDir()).toAbsolutePath();
-        var       verifier = new TestVerifier(config.testCommand(), projDir);
+        var       verifier = new TestVerifier(config.testCommand(), projDir, config.testTimeoutMin());
         var       reporter = new Reporter(config);
 
         if (runOptions.fresh()) {
@@ -213,6 +217,10 @@ public class TaskRunner {
                 Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName));
             System.out.println(Ansi.rule());
 
+            // Touched files are tracked per task: fix prompts list what this
+            // task's agent turns changed, not leftovers from earlier tasks.
+            stats.resetTouched();
+
             String taskBody = config.taskPreambleStrip()
                 ? Prompts.stripPreamble(taskContent)
                 : taskContent;
@@ -238,8 +246,8 @@ public class TaskRunner {
 
             if (budgetExceeded()) {
                 System.out.println(Ansi.yellow(
-                    "Stopping — estimated token budget exceeded ("
-                        + (inputTokens + outputTokens) + " / "
+                    "Stopping — token budget exceeded ("
+                        + tokensUsedForBudget() + " / "
                         + config.maxTokensPerRun() + ")."));
                 printTokenSummary();
                 return false;
@@ -275,9 +283,9 @@ public class TaskRunner {
 
             String fixPrompt = config.initInstructions()
                 ? Prompts.forFixShort(config.testCommand(), result.output(),
-                    config.fixOutputMaxLines())
+                    config.fixOutputMaxLines(), stats.touchedFiles())
                 : Prompts.forFix(config.testCommand(), result.output(),
-                    config.fixOutputMaxLines());
+                    config.fixOutputMaxLines(), stats.touchedFiles());
 
             String fixStop = sendPrompt(client,
                 "agent working (fix attempt " + attempt + ")", fixPrompt);
@@ -325,6 +333,9 @@ public class TaskRunner {
         try {
             NewSessionResponse fresh = client.newSession(
                 new NewSessionRequest(projDir.toString(), List.of()));
+            // The fresh session's usage reports restart at zero — bank the old
+            // session's reported figures so run totals stay cumulative.
+            stats.rolloverSession();
             currentSessionId = fresh.sessionId();
             System.out.println(Ansi.dim("[compact] fresh session: " + currentSessionId
                 + " (after " + tasksInCurrentSession + " tasks)"));
@@ -345,7 +356,18 @@ public class TaskRunner {
     private boolean budgetExceeded() {
         int budget = config.maxTokensPerRun();
         if (budget <= 0) return false;
-        return (inputTokens + outputTokens) >= budget;
+        return tokensUsedForBudget() >= budget;
+    }
+
+    /**
+     * Tokens counted against {@code max_tokens_per_run}: the agent's own usage
+     * reports when it sends them (exact), otherwise the chars/4 estimate of
+     * prompts + streamed summaries.
+     */
+    private long tokensUsedForBudget() {
+        return stats.hasReportedUsage()
+            ? stats.totalUsedTokens()
+            : inputTokens + outputTokens;
     }
 
     /**
@@ -392,8 +414,19 @@ public class TaskRunner {
     }
 
     private void printTokenSummary() {
+        if (stats.hasReportedUsage()) {
+            StringBuilder line = new StringBuilder("agent-reported: ")
+                .append(stats.totalUsedTokens()).append(" tokens used");
+            Double cost = stats.totalCost();
+            if (cost != null) {
+                line.append(", cost ").append(String.format("%.4f", cost));
+                if (stats.costCurrency() != null) line.append(' ').append(stats.costCurrency());
+            }
+            System.out.println(Ansi.dim("[tokens] ") + line);
+            return;
+        }
         long total = inputTokens + outputTokens;
-        System.out.printf("%s ~%d in, ~%d out, ~%d total%n",
+        System.out.printf("%s ~%d in, ~%d out, ~%d total (estimated)%n",
             Ansi.dim("[tokens]"), inputTokens, outputTokens, total);
     }
 
@@ -490,7 +523,7 @@ public class TaskRunner {
     }
 
     private AcpSyncClient buildClient(StdioAcpClientTransport transport) {
-        return AcpClientFactory.build(transport, config, console);
+        return AcpClientFactory.build(transport, config, console, stats);
     }
 
     /**

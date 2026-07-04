@@ -51,25 +51,53 @@ final class Prompts {
     /**
      * Fix-loop prompt with truncated test output. {@code maxLines <= 0}
      * disables truncation (preserves old behaviour for callers that want the
-     * full dump).
+     * full dump). {@code touchedFiles} — files the agent changed during this
+     * task so far — anchors the diagnosis to its own edits instead of a fresh
+     * repo exploration; empty/null adds nothing.
      */
-    static String forFix(String testCommand, String testOutput, int maxLines) {
+    static String forFix(String testCommand, String testOutput, int maxLines,
+                         java.util.List<String> touchedFiles) {
         return "Previous changes broke the tests. `" + testCommand + "` failed:\n\n"
             + "----- TEST OUTPUT -----\n"
             + truncateOutput(testOutput, maxLines)
             + "\n----- END OUTPUT -----\n\n"
+            + touchedFilesSection(touchedFiles)
             + "Diagnose and fix without weakening the tests. "
             + SUMMARY_FORMAT_COMPACT;
     }
 
     /** Fix-loop prompt that relies on a prior session-init message. */
-    static String forFixShort(String testCommand, String testOutput, int maxLines) {
+    static String forFixShort(String testCommand, String testOutput, int maxLines,
+                              java.util.List<String> touchedFiles) {
         return "`" + testCommand + "` failed:\n\n"
             + "----- TEST OUTPUT -----\n"
             + truncateOutput(testOutput, maxLines)
             + "\n----- END OUTPUT -----\n\n"
+            + touchedFilesSection(touchedFiles)
             + "Diagnose and fix without weakening the tests. "
             + SUMMARY_FORMAT_REF;
+    }
+
+    /** How many touched files a fix prompt lists before eliding the rest. */
+    static final int TOUCHED_FILES_CAP = 20;
+
+    /**
+     * Bulleted list of the files changed so far in this task, so the fix
+     * attempt starts from the likely culprits. Empty input → empty string.
+     */
+    static String touchedFilesSection(java.util.List<String> touchedFiles) {
+        if (touchedFiles == null || touchedFiles.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder(
+            "Files you created or modified for this task (likely culprits):\n");
+        int n = Math.min(touchedFiles.size(), TOUCHED_FILES_CAP);
+        for (int i = 0; i < n; i++) {
+            sb.append("- ").append(touchedFiles.get(i)).append('\n');
+        }
+        if (touchedFiles.size() > n) {
+            sb.append("- … and ").append(touchedFiles.size() - n).append(" more\n");
+        }
+        sb.append('\n');
+        return sb.toString();
     }
 
     /**

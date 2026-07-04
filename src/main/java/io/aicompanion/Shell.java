@@ -29,6 +29,7 @@ public class Shell {
 
     private static final List<String> RUN_FLAGS = List.of(
         "--features", "--agent", "--model", "--project", "--test-command",
+        "--test-timeout",
         "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
         "--fresh", "--retry-failed",
         "--pre-check-tests", "--task-preamble-strip", "--init-instructions",
@@ -430,6 +431,7 @@ public class Shell {
         row("project_dir",         config.projectDir());
         row("test_command",        config.testCommand()  != null ? config.testCommand() : "(auto-detect)");
         row("test_enabled",        String.valueOf(config.testEnabled()));
+        row("test_timeout_min",    String.valueOf(config.testTimeoutMin()));
         row("stop_on_failure",     String.valueOf(config.stopOnFailure()));
         row("max_fix_attempts",    String.valueOf(config.maxFixAttempts()));
         row("session_timeout_min", String.valueOf(config.sessionTimeoutMin()));

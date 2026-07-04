@@ -148,7 +148,18 @@ public class RunState {
         DumperOptions opts = new DumperOptions();
         opts.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
         opts.setPrettyFlow(true);
-        Files.writeString(path, new Yaml(opts).dump(root));
+
+        // Write-then-rename so a crash mid-write can never corrupt the state
+        // file (load() treats a malformed file as empty, silently discarding
+        // all resume state).
+        Path tmp = path.resolveSibling(path.getFileName() + ".tmp");
+        Files.writeString(tmp, new Yaml(opts).dump(root));
+        try {
+            Files.move(tmp, path,
+                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     /** Delete the state file at the default path. No-op if absent. */

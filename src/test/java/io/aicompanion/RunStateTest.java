@@ -38,6 +38,21 @@ class RunStateTest {
     }
 
     @Test
+    void saveLeavesNoTempFileAndOverwritesExistingState() throws IOException {
+        RunState s = RunState.load(stateFile());
+        s.markPassed("01-a.md", "h1");
+        s.save();
+        s.markFailed("01-a.md", "h1");
+        s.save();   // second save must atomically replace the first
+
+        try (var files = Files.list(tempDir)) {
+            assertEquals(java.util.List.of(stateFile()), files.toList(),
+                "save must not leave .tmp files behind");
+        }
+        assertEquals(RunState.Status.FAILED, RunState.load(stateFile()).get("01-a.md").status());
+    }
+
+    @Test
     void corruptFileTreatedAsEmpty() throws IOException {
         Files.writeString(stateFile(), ":::: not yaml ::: [unbalanced");
         RunState s = RunState.load(stateFile());
