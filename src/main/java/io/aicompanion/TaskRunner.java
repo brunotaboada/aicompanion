@@ -331,11 +331,11 @@ public class TaskRunner {
         int threshold = config.compactAfterNTasks();
         if (threshold <= 0 || tasksInCurrentSession < threshold) return;
         try {
+            // Bank the old session's figures before opening a fresh one — the ACP
+            // consumer may apply the new session's usage_update immediately.
+            stats.rolloverSession();
             NewSessionResponse fresh = client.newSession(
                 new NewSessionRequest(projDir.toString(), List.of()));
-            // The fresh session's usage reports restart at zero — bank the old
-            // session's reported figures so run totals stay cumulative.
-            stats.rolloverSession();
             currentSessionId = fresh.sessionId();
             System.out.println(Ansi.dim("[compact] fresh session: " + currentSessionId
                 + " (after " + tasksInCurrentSession + " tasks)"));

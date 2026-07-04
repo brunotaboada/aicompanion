@@ -66,6 +66,28 @@ class SessionStatsTest {
     }
 
     @Test
+    void rolloverBeforeNewSessionUsagePreservesPriorTotals() {
+        var stats = new SessionStats();
+        stats.recordUsage(usage(1000L, null, 0.10));
+        stats.rolloverSession();
+        stats.recordUsage(usage(50L, null, 0.01));
+        assertEquals(1050, stats.totalUsedTokens());
+        assertEquals(0.11, stats.totalCost(), 1e-9);
+    }
+
+    @Test
+    void usageBeforeRolloverLosesPriorSession() {
+        // Documents why rollover must precede newSession() — the ACP consumer
+        // can apply the fresh session's usage_update before rollover runs.
+        var stats = new SessionStats();
+        stats.recordUsage(usage(1000L, null, 0.10));
+        stats.recordUsage(usage(50L, null, 0.01));
+        stats.rolloverSession();
+        assertEquals(50, stats.totalUsedTokens());
+        assertEquals(0.01, stats.totalCost(), 1e-9);
+    }
+
+    @Test
     void usageUpdateWithoutTokenCountDoesNotFlagReporting() {
         var stats = new SessionStats();
         stats.recordUsage(usage(null, 200_000L, null));
