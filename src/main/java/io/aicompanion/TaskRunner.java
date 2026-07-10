@@ -132,16 +132,10 @@ public class TaskRunner {
             client.initialize(new InitializeRequest(1,
                 new ClientCapabilities(new FileSystemCapability(true, true), false)));
 
-            var session = client.newSession(new NewSessionRequest(projDir.toString(), List.of()));
-            currentSessionId      = session.sessionId();
-            tasksInCurrentSession = 0;
-            recentTaskNames.clear();
-            System.out.println("Session: " + currentSessionId);
-            selectModel(client, currentSessionId, session.models());
-            if (config.initInstructions()) {
-                sendInitInstructions(client);
+            if (config.reuseSession()) {
+                beginSession(client, projDir, /*rollover=*/false);
+                System.out.println();
             }
-            System.out.println();
 
             int taskOffset = 0;
             for (Batch batch : batches) {
@@ -229,8 +223,12 @@ public class TaskRunner {
                     "Pre-check found failures; proceeding with agent."));
             }
 
-            // Compact: refresh the session every N tasks to bound context drift.
-            maybeCompactSession(client, projDir);
+            // Per-task isolation, or periodic compaction when reusing one session.
+            if (!config.reuseSession()) {
+                beginSession(client, projDir, currentSessionId != null);
+            } else {
+                maybeCompactSession(client, projDir);
+            }
 
             System.out.println(Ansi.rule());
             System.out.printf("%s %d/%d: %s%n",
@@ -347,6 +345,21 @@ public class TaskRunner {
     }
 
     /**
+     * Open (or reopen) an ACP session on {@code projDir}. When {@code rollover}
+     * is true, bank usage from the previous session before switching.
+     */
+    private void beginSession(AcpSyncClient client, Path projDir, boolean rollover) {
+        if (rollover) stats.rolloverSession();
+        NewSessionResponse session = client.newSession(
+            new NewSessionRequest(projDir.toString(), List.of()));
+        currentSessionId      = session.sessionId();
+        tasksInCurrentSession = 0;
+        System.out.println("Session: " + currentSessionId);
+        selectModel(client, currentSessionId, session.models());
+        if (config.initInstructions()) sendInitInstructions(client);
+    }
+
+    /**
      * If {@code compact_after_n_tasks} is set and the current session has
      * processed that many tasks, end it and start a fresh one. A short
      * "previously completed" handoff is sent so the agent has context without
@@ -356,20 +369,10 @@ public class TaskRunner {
         int threshold = config.compactAfterNTasks();
         if (threshold <= 0 || tasksInCurrentSession < threshold) return;
         try {
-            // Bank the old session's figures before opening a fresh one — the ACP
-            // consumer may apply the new session's usage_update immediately.
-            stats.rolloverSession();
-            NewSessionResponse fresh = client.newSession(
-                new NewSessionRequest(projDir.toString(), List.of()));
-            currentSessionId = fresh.sessionId();
-            System.out.println(Ansi.dim("[compact] fresh session: " + currentSessionId
-                + " (after " + tasksInCurrentSession + " tasks)"));
-            selectModel(client, currentSessionId, fresh.models());
-            if (config.initInstructions()) sendInitInstructions(client);
-
+            beginSession(client, projDir, /*rollover=*/true);
+            System.out.println(Ansi.dim("[compact] fresh session after "
+                + threshold + " task(s)"));
             sendPrompt(client, null, Prompts.forCompactHandoff(List.copyOf(recentTaskNames)));
-
-            tasksInCurrentSession = 0;
             recentTaskNames.clear();
         } catch (RuntimeException e) {
             System.err.println(Ansi.yellow(
