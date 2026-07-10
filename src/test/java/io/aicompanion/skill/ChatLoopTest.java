@@ -155,6 +155,42 @@ class ChatLoopTest {
     }
 
     @Test
+    void preExistingOutputDoesNotInstantComplete() throws IOException {
+        Path out = tempDir.resolve("_prd.md");
+        Files.writeString(out, "stale content from a prior run");
+
+        List<String> script = List.of("please update this", "/abort");
+        ChatLoop l = loop(out, script);
+        assertEquals(ChatLoop.Outcome.ABORTED, l.run("opening"));
+    }
+
+    @Test
+    void preExistingOutputCompletesWhenModifiedDuringSession() throws IOException {
+        Path out = tempDir.resolve("_prd.md");
+        Files.writeString(out, "stale");
+
+        ChatLoop l = loop(out, List.of("/abort"),
+            () -> writeFile(out, "updated draft"));
+        assertEquals(ChatLoop.Outcome.COMPLETED, l.run("opening"));
+    }
+
+    @Test
+    void completionFileRequiredWhenConfigured() throws IOException {
+        Path out = tempDir.resolve("_tasks.md");
+        Path task = tempDir.resolve("tasks/task_01.md");
+
+        ChatLoop l = new ChatLoop(
+            p -> { if (p.contains("opening")) writeFile(out, "list"); },
+            p -> null,
+            new EditorLauncher((c, f) -> 0),
+            null, out, task, null, null);
+
+        assertEquals(ChatLoop.Outcome.ABORTED, l.run("opening"));
+        assertTrue(Files.exists(out));
+        assertFalse(Files.exists(task));
+    }
+
+    @Test
     void formatTokensIsHumanReadable() {
         assertEquals("950",    ChatLoop.formatTokens(950));
         assertEquals("1.5k",   ChatLoop.formatTokens(1500));

@@ -1,6 +1,7 @@
 ---
 description: Decomposes a PRD and TechSpec into independently implementable task files for `run`.
 output: _tasks.md
+completion: tasks/task_01.md
 ---
 
 # create-tasks

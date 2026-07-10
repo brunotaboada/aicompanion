@@ -3,6 +3,7 @@ package io.aicompanion;
 import io.aicompanion.util.Platform;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -66,14 +67,15 @@ public class TestVerifier {
                 drain.join(2_000);
                 return new Result(false,
                     "Test command timed out after " + humanTimeout() + ": `" + command + "`\n"
-                    + "The process was killed. Partial output:\n" + buf.toString());
+                    + "The process was killed. Partial output:\n"
+                    + buf.toString(StandardCharsets.UTF_8));
             }
 
             // The pipe can stay open past process exit when a grandchild
             // inherited stdout (e.g. a dev server the tests left running), so
             // bound the wait for the drain thread rather than joining forever.
             drain.join(10_000);
-            return new Result(proc.exitValue() == 0, buf.toString());
+            return new Result(proc.exitValue() == 0, buf.toString(StandardCharsets.UTF_8));
         } catch (IOException e) {
             return new Result(false, "Test runner error: " + e.getMessage());
         } catch (InterruptedException e) {

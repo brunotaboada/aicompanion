@@ -1,5 +1,6 @@
 package io.aicompanion.skill;
 
+import io.aicompanion.util.PathSecurity;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.error.YAMLException;
 import java.io.IOException;
@@ -75,7 +76,8 @@ public class SkillLoader {
         Frontmatter fm = parseFrontmatter(raw, skillFile);
         SkillMetadata metadata = toMetadata(skillName, fm, skillFile);
 
-        Path outputFile = ctx.featureDir().resolve(metadata.outputRelativePath());
+        Path outputFile = PathSecurity.resolveContained(
+            ctx.featureDir(), metadata.outputRelativePath(), "output");
         Path skillDir = skillFile.getParent();
 
         String rendered = render(fm.body(), ctx, metadata, skillDir, outputFile, skillsRoot);
@@ -85,10 +87,11 @@ public class SkillLoader {
     // ── internals ────────────────────────────────────────────────────────────
 
     private Path skillFileFor(String skillName) {
-        if (skillName == null || skillName.isBlank()) {
-            throw new SkillLoadException("Skill name must be non-blank.");
+        String safeName = PathSecurity.validateSegment(skillName, "Skill name");
+        Path skillDir = skillsRoot.resolve(safeName).normalize();
+        if (!skillDir.startsWith(skillsRoot.toAbsolutePath().normalize())) {
+            throw new SkillLoadException("Skill path escapes skills root: " + skillName);
         }
-        Path skillDir = skillsRoot.resolve(skillName);
         Path skillFile = skillDir.resolve("SKILL.md");
         if (!Files.isRegularFile(skillFile)) {
             throw new SkillLoadException(
@@ -146,6 +149,7 @@ public class SkillLoader {
     private static SkillMetadata toMetadata(String skillName, Frontmatter fm, Path skillFile) {
         Object desc = fm.yaml().get("description");
         Object out  = fm.yaml().get("output");
+        Object completion = fm.yaml().get("completion");
         if (desc == null || String.valueOf(desc).isBlank()) {
             throw new SkillLoadException(
                 "Skill at " + skillFile + " is missing required frontmatter field `description`.");
@@ -154,7 +158,14 @@ public class SkillLoader {
             throw new SkillLoadException(
                 "Skill at " + skillFile + " is missing required frontmatter field `output`.");
         }
-        return new SkillMetadata(skillName, String.valueOf(desc), String.valueOf(out));
+        String outputPath = String.valueOf(out);
+        String completionPath = completion != null && !String.valueOf(completion).isBlank()
+            ? String.valueOf(completion) : null;
+        PathSecurity.validateRelativePath(outputPath, "output");
+        if (completionPath != null) {
+            PathSecurity.validateRelativePath(completionPath, "completion");
+        }
+        return new SkillMetadata(skillName, String.valueOf(desc), outputPath, completionPath);
     }
 
     /**

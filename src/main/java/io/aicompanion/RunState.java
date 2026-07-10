@@ -27,11 +27,14 @@ public class RunState {
     private final Path path;
     private final Map<String, TaskState> tasks;
     private String featuresDir;
+    private String loadWarning;
 
-    private RunState(Path path, String featuresDir, Map<String, TaskState> tasks) {
+    private RunState(Path path, String featuresDir, Map<String, TaskState> tasks,
+                       String loadWarning) {
         this.path        = path;
         this.featuresDir = featuresDir;
         this.tasks       = new LinkedHashMap<>(tasks);
+        this.loadWarning = loadWarning;
     }
 
     /** Load state from the default path. Returns empty state if missing/corrupt. */
@@ -42,12 +45,12 @@ public class RunState {
     @SuppressWarnings("unchecked")
     public static RunState load(Path path) {
         if (!Files.exists(path)) {
-            return new RunState(path, null, new LinkedHashMap<>());
+            return new RunState(path, null, new LinkedHashMap<>(), null);
         }
         try (var reader = Files.newBufferedReader(path)) {
             Object raw = new Yaml().load(reader);
             if (!(raw instanceof Map)) {
-                return new RunState(path, null, new LinkedHashMap<>());
+                return corrupt(path, "expected a YAML mapping at the top level");
             }
             Map<String, Object> root = (Map<String, Object>) raw;
             String featuresDir = root.get("features_dir") instanceof String s ? s : null;
@@ -65,10 +68,17 @@ public class RunState {
                     parsed.put(name, new TaskState(status, hash, at));
                 }
             }
-            return new RunState(path, featuresDir, parsed);
+            return new RunState(path, featuresDir, parsed, null);
         } catch (IOException | RuntimeException e) {
-            return new RunState(path, null, new LinkedHashMap<>());
+            return corrupt(path, e.getMessage());
         }
+    }
+
+    private static RunState corrupt(Path path, String detail) {
+        String msg = "[resume] WARNING: could not parse " + path
+            + " — starting with empty state"
+            + (detail != null ? " (" + detail + ")" : "");
+        return new RunState(path, null, new LinkedHashMap<>(), msg);
     }
 
     private static Status parseStatus(Object v) {
@@ -78,6 +88,22 @@ public class RunState {
     }
 
     public void setFeaturesDir(String dir) { this.featuresDir = dir; }
+
+    public String storedFeaturesDir() { return featuresDir; }
+
+    /** Non-null when the on-disk state file was missing or unreadable. */
+    public String loadWarning() { return loadWarning; }
+
+    /**
+     * Resume entries are only trusted when the stored {@code features_dir}
+     * matches the current configuration.
+     */
+    public boolean isResumeValidFor(String currentFeaturesDir) {
+        return featuresDir == null || Objects.equals(featuresDir, currentFeaturesDir);
+    }
+
+    /** Drop all task entries (e.g. after a {@code features_dir} change). */
+    public void clearTasks() { tasks.clear(); }
 
     public TaskState get(String name) { return tasks.get(name); }
 

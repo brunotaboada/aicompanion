@@ -53,11 +53,32 @@ class RunStateTest {
     }
 
     @Test
-    void corruptFileTreatedAsEmpty() throws IOException {
+    void corruptFileTreatedAsEmptyWithWarning() throws IOException {
         Files.writeString(stateFile(), ":::: not yaml ::: [unbalanced");
         RunState s = RunState.load(stateFile());
         assertEquals(0, s.passedCount());
         assertEquals(0, s.failedCount());
+        assertNotNull(s.loadWarning());
+        assertTrue(s.loadWarning().contains("WARNING"));
+    }
+
+    @Test
+    void featuresDirMismatchInvalidatesResume() {
+        RunState s = RunState.load(stateFile());
+        s.setFeaturesDir("old-features");
+        s.markPassed("a.md", "h1");
+        assertFalse(s.isResumeValidFor("new-features"));
+        s.clearTasks();
+        assertFalse(s.shouldSkip("a.md", "h1", false));
+    }
+
+    @Test
+    void storedFeaturesDirRoundTrips() throws IOException {
+        RunState s = RunState.load(stateFile());
+        s.setFeaturesDir("features");
+        s.markPassed("a.md", "h");
+        s.save();
+        assertEquals("features", RunState.load(stateFile()).storedFeaturesDir());
     }
 
     @Test

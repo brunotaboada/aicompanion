@@ -18,23 +18,14 @@ import io.aicompanion.agent.AgentRegistry;
 import io.aicompanion.agent.AgentSpec;
 import io.aicompanion.config.Config;
 import io.aicompanion.console.Ansi;
+import io.aicompanion.util.PathSecurity;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
 
-/**
- * Runs one interactive skill session end-to-end: resolves the agent, opens an
- * ACP session, sets the per-skill model, prepares the {@link Transcript}, and
- * hands the rendered prompt to a {@link ChatLoop}.
- *
- * <p>Separate from {@code TaskRunner} on purpose — {@code TaskRunner} executes
- * pre-decomposed task files autonomously; {@code SkillRunner} is the
- * interactive PRD / TechSpec / task-decomposition counterpart that produces
- * those task files in the first place.
- */
 public final class SkillRunner {
 
-    /** Where the canonical skill bundles live, relative to the project root. */
+    /** Relative path from {@link #skillsRoot(Config)} — kept for messages and tests. */
     public static final Path SKILLS_ROOT = Path.of(".agents", "skills");
 
     private final Config       config;
@@ -42,11 +33,14 @@ public final class SkillRunner {
     private final UserInput    userInput;
     private final SkillLoader  loader;
 
-    public SkillRunner(Config config, AgentConsole console, UserInput userInput) {
-        this(config, console, userInput, new SkillLoader(SKILLS_ROOT));
+    public static Path skillsRoot(Config config) {
+        return Path.of(config.projectDir()).resolve(SKILLS_ROOT);
     }
 
-    /** Visible for testing — lets a test inject a {@link SkillLoader} pointing at a temp dir. */
+    public SkillRunner(Config config, AgentConsole console, UserInput userInput) {
+        this(config, console, userInput, new SkillLoader(skillsRoot(config)));
+    }
+
     public SkillRunner(Config config, AgentConsole console, UserInput userInput, SkillLoader loader) {
         this.config    = config;
         this.console   = console;
@@ -54,15 +48,6 @@ public final class SkillRunner {
         this.loader    = loader;
     }
 
-    /**
-     * Drive the skill to completion. Returns the {@link ChatLoop.Outcome} for
-     * the caller (Shell or FeaturePipeline) to react to.
-     *
-     * @param skillName      directory under {@code .agents/skills/}
-     * @param featureName    feature slug; resolves to {@code <featuresDir>/<featureName>/}
-     * @param seedFile       optional explicit seed file (overrides {@code _idea.md} auto-detect)
-     * @param modelOverride  optional --model flag; overrides {@code skills.<name>.model}
-     */
     public ChatLoop.Outcome run(String skillName,
                                  String featureName,
                                  Path seedFile,
@@ -70,16 +55,25 @@ public final class SkillRunner {
         if (featureName == null || featureName.isBlank()) {
             throw new IllegalArgumentException("Feature name is required.");
         }
+        String safeFeature = PathSecurity.validateSegment(featureName, "Feature name");
 
-        Path featureDir = Path.of(config.featuresDir()).resolve(featureName);
+        if (seedFile != null && !Files.exists(seedFile)) {
+            throw new SkillLoadException("Seed file not found: " + seedFile);
+        }
+
+        Path featureDir = Path.of(config.featuresDir()).resolve(safeFeature);
         Files.createDirectories(featureDir);
         Files.createDirectories(featureDir.resolve("adrs"));
 
         SkillMetadata md = loader.describe(skillName);
-        Path outputFile = featureDir.resolve(md.outputRelativePath());
+        Path outputFile = PathSecurity.resolveContained(
+            featureDir, md.outputRelativePath(), "output");
+        Path completionFile = md.completionRelativePath() != null
+            ? PathSecurity.resolveContained(featureDir, md.completionRelativePath(), "completion")
+            : null;
         boolean updateMode = Files.exists(outputFile);
 
-        SkillContext ctx = new SkillContext(featureName, featureDir,
+        SkillContext ctx = new SkillContext(safeFeature, featureDir,
             (seedFile != null && Files.exists(seedFile)) ? seedFile : null,
             updateMode);
         Skill skill = loader.load(skillName, ctx);
@@ -89,11 +83,11 @@ public final class SkillRunner {
             ? modelOverride
             : config.modelFor(skillName);
 
-        printBanner(skill, featureName, outputFile, spec, model, updateMode);
+        printBanner(skill, safeFeature, outputFile, spec, model, updateMode);
 
         Path transcriptFile = transcriptPathFor(featureDir, md);
         Transcript transcript = new Transcript(transcriptFile);
-        transcript.recordHeader(skillName, featureName);
+        transcript.recordHeader(skillName, safeFeature);
 
         var transport = new StdioAcpClientTransport(spec.params(config).get());
         try (AcpSyncClient client = AcpClientFactory.build(transport, config, console)) {
@@ -115,7 +109,7 @@ public final class SkillRunner {
 
             ChatLoop loop = new ChatLoop(
                 sender, userInput, new EditorLauncher(), console,
-                outputFile, transcript, null);
+                outputFile, completionFile, transcript, null);
 
             ChatLoop.Outcome outcome = loop.run(skill.body());
             printFooter(outcome, outputFile, transcriptFile);
@@ -123,9 +117,6 @@ public final class SkillRunner {
         }
     }
 
-    // ── internals ────────────────────────────────────────────────────────────
-
-    /** {@code _prd.md} → {@code _prd.transcript.md}. Output without `.md` gets `.transcript.md` appended. */
     static Path transcriptPathFor(Path featureDir, SkillMetadata md) {
         String out = md.outputRelativePath();
         String name = out.endsWith(".md")
@@ -177,10 +168,6 @@ public final class SkillRunner {
         }
     }
 
-    /**
-     * If a model was resolved, switch the session to it. Same matching logic as
-     * {@code TaskRunner.selectModel} — permissive: "sonnet" → "claude-sonnet-4-6".
-     */
     private static void selectModel(AcpSyncClient client, String sessionId,
                                      SessionModelState modelState, String want) {
         if (want == null || want.isBlank()) return;
