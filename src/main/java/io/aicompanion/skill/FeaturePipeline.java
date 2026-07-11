@@ -2,6 +2,8 @@ package io.aicompanion.skill;
 
 import io.aicompanion.config.Config;
 import io.aicompanion.console.Ansi;
+import io.aicompanion.util.EditorCommand;
+import io.aicompanion.util.PathSecurity;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
@@ -67,7 +69,8 @@ public final class FeaturePipeline {
      * announced inline as the pipeline progresses.
      */
     public Outcome run(String featureName, Options opts) throws IOException {
-        Path featureDir = Path.of(config.featuresDir()).resolve(featureName);
+        String safeFeature = PathSecurity.validateSegment(featureName, "Feature name");
+        Path featureDir = Path.of(config.featuresDir()).resolve(safeFeature);
         Files.createDirectories(featureDir);
 
         for (int i = 0; i < SKILLS_IN_ORDER.size(); i++) {
@@ -78,7 +81,8 @@ public final class FeaturePipeline {
             Path outputFile;
             try {
                 SkillMetadata md = loader.describe(skill);
-                outputFile = featureDir.resolve(md.outputRelativePath());
+                outputFile = PathSecurity.resolveContained(
+                    featureDir, md.outputRelativePath(), "output");
             } catch (SkillLoadException e) {
                 System.err.println(Ansi.red("[" + n + "/" + total + "] " + skill
                     + " — skill not available: " + e.getMessage()));
@@ -99,13 +103,13 @@ public final class FeaturePipeline {
             }
 
             System.out.println(Ansi.bold(Ansi.cyan(
-                "[" + n + "/" + total + "] " + skill + " " + featureName)));
+                "[" + n + "/" + total + "] " + skill + " " + safeFeature)));
 
             // --seed only flows into the first executed step; subsequent steps
             // already have richer prior-step output to ground in.
             Path seedThisStep = (i == 0) ? opts.seed() : null;
 
-            ChatLoop.Outcome outcome = invoker.invoke(skill, featureName, seedThisStep, null);
+            ChatLoop.Outcome outcome = invoker.invoke(skill, safeFeature, seedThisStep, null);
 
             switch (outcome) {
                 case COMPLETED -> { /* fall through to gate */ }
@@ -131,24 +135,23 @@ public final class FeaturePipeline {
                     case EDIT_AND_CONTINUE -> openEditor(outputFile);
                     case STOP -> {
                         System.out.println(Ansi.yellow(
-                            "Pipeline stopped at " + skill + ". Resume by re-running `create-feature " + featureName + "`."));
+                            "Pipeline stopped at " + skill + ". Resume by re-running `create-feature " + safeFeature + "`."));
                         return Outcome.STOPPED;
                     }
                 }
             }
         }
 
-        System.out.println(Ansi.green("✓ Feature '" + featureName + "' ready. "
-            + "Run with: run --features " + Path.of(config.featuresDir()).resolve(featureName)));
+        System.out.println(Ansi.green("✓ Feature '" + safeFeature + "' ready. "
+            + "Run with: run --features " + Path.of(config.featuresDir()).resolve(safeFeature)));
         return Outcome.ALL_COMPLETED;
     }
 
     private void openEditor(Path file) {
         try {
-            String editorCmd = System.getenv("VISUAL");
-            if (editorCmd == null || editorCmd.isBlank()) editorCmd = System.getenv("EDITOR");
-            if (editorCmd == null || editorCmd.isBlank()) editorCmd = "vi";
-            new ProcessBuilder(editorCmd, file.toString()).inheritIO().start().waitFor();
+            String editor = EditorCommand.resolveEditor();
+            new ProcessBuilder(EditorCommand.argv(editor, file))
+                .inheritIO().start().waitFor();
         } catch (IOException | InterruptedException e) {
             System.err.println(Ansi.yellow("[edit] " + e.getMessage() + " — continuing without edit."));
         }

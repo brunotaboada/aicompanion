@@ -51,6 +51,12 @@ public class TaskRunner {
     /** Bottom-row live status (agent/model/task/tests/fix); no-op without a terminal. */
     private final StatusBar status;
 
+    /** Active transport — closed on user interrupt to unblock in-flight prompts. */
+    private StdioAcpClientTransport activeTransport;
+
+    /** Tasks that failed agent or test verification this run. */
+    private int tasksFailedThisRun;
+
     public TaskRunner(Config config) {
         this(config, RunOptions.defaults(), null);
     }
@@ -72,22 +78,27 @@ public class TaskRunner {
         this.status        = statusBar != null ? statusBar : StatusBar.attach(null);
     }
 
-    public void run() throws Exception {
+    public RunResult run() throws Exception {
         List<Batch> batches   = batchResolver.resolveBatches();
         int         totalTasks = batches.stream().mapToInt(b -> b.taskPaths().size()).sum();
 
         if (totalTasks == 0) {
             System.out.println("No features with tasks found under: " + config.featuresDir());
-            return;
+            return new RunResult(RunResult.Outcome.NO_TASKS, 0);
         }
 
-        // Dry-run: estimate tokens without resolving an agent or spawning ACP.
-        // Skipping AgentRegistry.resolve() here is what makes dry-run useful on
-        // machines that don't have an agent installed (eg. CI sizing checks).
         if (runOptions.dryRunTokens()) {
             dryRunTokens(batches, totalTasks);
-            return;
+            return RunResult.success();
         }
+
+        try (RunStateLock ignored = RunStateLock.acquire()) {
+            return runLocked(batches, totalTasks);
+        }
+    }
+
+    private RunResult runLocked(List<Batch> batches, int totalTasks) throws Exception {
+        tasksFailedThisRun = 0;
 
         AgentSpec spec    = AgentRegistry.resolve(config);
         Path      projDir = Path.of(config.projectDir()).toAbsolutePath();
@@ -99,6 +110,16 @@ public class TaskRunner {
             try { RunState.delete(); } catch (IOException ignore) {}
         }
         RunState state = RunState.load();
+        if (state.loadWarning() != null) {
+            System.out.println(Ansi.yellow(state.loadWarning()));
+        }
+        if (!state.isResumeValidFor(config.featuresDir())) {
+            System.out.println(Ansi.yellow(
+                "[resume] features_dir changed (was "
+                    + state.storedFeaturesDir() + ", now " + config.featuresDir()
+                    + ") — ignoring previous resume state."));
+            state.clearTasks();
+        }
         state.setFeaturesDir(config.featuresDir());
         int wouldSkip = announceResume(state, batches);
 
@@ -116,19 +137,16 @@ public class TaskRunner {
         }
         System.out.println();
 
-        // Nothing to actually run? Skip the agent spawn entirely. Spinning up
-        // ACP just to print "skipped" lines is wasteful and (when the agent
-        // can't connect) produces an alarming stack trace for a no-op run.
         if (wouldSkip == totalTasks) {
             System.out.println(Ansi.green("Nothing to do — every task is already passed."));
             System.out.println(Ansi.dim("Use --fresh to wipe state and re-run, "
                 + "or --retry-failed to re-run only failures."));
-            return;
+            return new RunResult(RunResult.Outcome.NOTHING_TO_DO, 0);
         }
 
-        var transport = new StdioAcpClientTransport(spec.params(config).get());
+        activeTransport = new StdioAcpClientTransport(spec.params(config).get());
 
-        try (AcpSyncClient client = buildClient(transport)) {
+        try (AcpSyncClient client = buildClient(activeTransport)) {
 
             client.initialize(new InitializeRequest(1,
                 new ClientCapabilities(new FileSystemCapability(true, true), false)));
@@ -142,7 +160,7 @@ public class TaskRunner {
             for (Batch batch : batches) {
                 if (Thread.currentThread().isInterrupted()) {
                     System.out.println(Ansi.yellow("Aborted by user."));
-                    return;
+                    return new RunResult(RunResult.Outcome.ABORTED, tasksFailedThisRun);
                 }
                 System.out.println(Ansi.bold(Ansi.cyan(
                     "═══ Feature: " + batch.featureName()
@@ -151,14 +169,26 @@ public class TaskRunner {
                 boolean keepGoing = runTaskBatch(
                     client, projDir, state, batch, taskOffset, totalTasks, verifier, reporter);
                 taskOffset += batch.taskPaths().size();
-                if (!keepGoing) return;
+                if (!keepGoing) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        return new RunResult(RunResult.Outcome.ABORTED, tasksFailedThisRun);
+                    }
+                    if (budgetExceeded()) {
+                        return new RunResult(RunResult.Outcome.BUDGET_EXCEEDED, tasksFailedThisRun);
+                    }
+                    return new RunResult(RunResult.Outcome.FAILURE, tasksFailedThisRun);
+                }
             }
 
             System.out.println(Ansi.rule());
             System.out.println(Ansi.green("All " + totalTasks + " tasks complete."));
             printTokenSummary();
+            return tasksFailedThisRun > 0
+                ? new RunResult(RunResult.Outcome.FAILURE, tasksFailedThisRun)
+                : RunResult.success();
         } finally {
             console.stopActiveSpinner();
+            activeTransport = null;
         }
     }
 
@@ -215,9 +245,10 @@ public class TaskRunner {
                 if (pre.passed()) {
                     status.setTestsPass();
                     System.out.println(Ansi.green(
-                        "✓ Tests already pass — skipping agent call.\n"));
-                    state.markPassed(stateKey, taskHash);
-                    persistState(state);
+                        "✓ Tests already pass — skipping agent call for this run only."));
+                    System.out.println(Ansi.dim(
+                        "  (pre-check does not mark the task complete — global tests may pass "
+                            + "before this task's work is done.)\n"));
                     continue;
                 }
                 System.out.println(Ansi.dim(
@@ -249,6 +280,13 @@ public class TaskRunner {
 
             String stopReason = sendPrompt(client, "agent working", prompt);
             System.out.println(Ansi.dim("[stop] " + stopReason));
+            if (!isSuccessfulAgentStop(stopReason)) {
+                System.out.println(Ansi.red("✗ Agent stopped with: " + stopReason));
+                state.markFailed(stateKey, taskHash);
+                tasksFailedThisRun++;
+                persistState(state);
+                return !config.stopOnFailure();
+            }
             reporter.write(displayName, console.getSummaryText());
 
             boolean keepGoing = runVerifyAndFix(
@@ -312,6 +350,10 @@ public class TaskRunner {
             String fixStop = sendPrompt(client,
                 "agent working (fix attempt " + attempt + ")", fixPrompt);
             System.out.println(Ansi.dim("[stop] " + fixStop));
+            if (!isSuccessfulAgentStop(fixStop)) {
+                System.out.println(Ansi.red("✗ Agent stopped during fix: " + fixStop));
+                break;
+            }
             reporter.write(displayName + ".fix" + attempt, console.getSummaryText());
 
             result = runTestsWithSpinner(verifier, "Re-running tests");
@@ -330,6 +372,7 @@ public class TaskRunner {
                 Ansi.red("✗"), config.maxFixAttempts());
             System.out.println(Prompts.truncateOutput(result.output(), config.fixOutputMaxLines()));
             state.markFailed(stateKey, taskHash);
+            tasksFailedThisRun++;
             return !config.stopOnFailure();
         }
     }
@@ -350,11 +393,20 @@ public class TaskRunner {
      * is true, bank usage from the previous session before switching.
      */
     private void beginSession(AcpSyncClient client, Path projDir, boolean rollover) {
+        beginSession(client, projDir, rollover, true);
+    }
+
+    /**
+     * @param resetTaskCounter when false, leaves {@link #tasksInCurrentSession}
+     *        untouched so compaction can retry if the handoff prompt fails
+     */
+    private void beginSession(AcpSyncClient client, Path projDir, boolean rollover,
+                              boolean resetTaskCounter) {
         if (rollover) stats.rolloverSession();
         NewSessionResponse session = client.newSession(
             new NewSessionRequest(projDir.toString(), List.of()));
-        currentSessionId      = session.sessionId();
-        tasksInCurrentSession = 0;
+        currentSessionId = session.sessionId();
+        if (resetTaskCounter) tasksInCurrentSession = 0;
         System.out.println("Session: " + currentSessionId);
         selectModel(client, currentSessionId, session.models());
         if (config.initInstructions()) sendInitInstructions(client);
@@ -370,14 +422,17 @@ public class TaskRunner {
         int threshold = config.compactAfterNTasks();
         if (threshold <= 0 || tasksInCurrentSession < threshold) return;
         try {
-            beginSession(client, projDir, /*rollover=*/true);
+            beginSession(client, projDir, /*rollover=*/true, /*resetTaskCounter=*/false);
             System.out.println(Ansi.dim("[compact] fresh session after "
                 + threshold + " task(s)"));
             sendPrompt(client, null, Prompts.forCompactHandoff(List.copyOf(recentTaskNames)));
             recentTaskNames.clear();
+            tasksInCurrentSession = 0;
         } catch (RuntimeException e) {
+            // Stay at/above threshold so the handoff is retried on the next task.
+            if (tasksInCurrentSession < threshold) tasksInCurrentSession = threshold;
             System.err.println(Ansi.yellow(
-                "Warning: could not compact session — continuing with current one. ("
+                "Warning: session compaction failed — will retry on the next task. ("
                     + e.getMessage() + ")"));
         }
     }
@@ -529,6 +584,10 @@ public class TaskRunner {
      * @return the agent's stop reason
      */
     private String sendPrompt(AcpSyncClient client, String spinnerLabel, String prompt) {
+        if (Thread.currentThread().isInterrupted()) {
+            abortInFlight();
+            throw new RuntimeException("Aborted by user");
+        }
         console.resetSummary();
         if (spinnerLabel != null) {
             if (console.hasToggle()) {
@@ -542,6 +601,12 @@ public class TaskRunner {
             var resp = client.prompt(new PromptRequest(
                 currentSessionId, List.of(new TextContent(prompt))));
             return String.valueOf(resp.stopReason());
+        } catch (RuntimeException e) {
+            if (Thread.currentThread().isInterrupted()) {
+                abortInFlight();
+                throw new RuntimeException("Aborted by user", e);
+            }
+            throw e;
         } finally {
             if (spinnerLabel != null) {
                 if (console.hasToggle()) console.stopToggle();
@@ -550,6 +615,20 @@ public class TaskRunner {
             console.closeAgentGutter();
             outputTokens += TokenEstimator.estimate(console.getSummaryText());
         }
+    }
+
+    private void abortInFlight() {
+        StdioAcpClientTransport t = activeTransport;
+        if (t != null) {
+            try { t.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** Treat only a normal end-of-turn as success before running tests. */
+    static boolean isSuccessfulAgentStop(String stopReason) {
+        if (stopReason == null || stopReason.isBlank()) return true;
+        String r = stopReason.trim().toLowerCase();
+        return r.contains("end_turn") || r.contains("end turn") || "stop".equals(r);
     }
 
     private AcpSyncClient buildClient(StdioAcpClientTransport transport) {

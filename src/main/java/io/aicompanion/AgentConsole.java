@@ -35,6 +35,7 @@ public final class AgentConsole {
 
     private final AtomicReference<StringBuilder> summaryBuf =
         new AtomicReference<>(new StringBuilder());
+    private final Object summaryLock = new Object();
     private final AtomicReference<Spinner> activeSpinner = new AtomicReference<>();
 
     // Set when a tool call interrupts the agent's text so the next chunk that
@@ -72,7 +73,9 @@ public final class AgentConsole {
     // ── summary buffer ────────────────────────────────────────────────────────
 
     public void resetSummary() {
-        summaryBuf.set(new StringBuilder());
+        synchronized (summaryLock) {
+            summaryBuf.set(new StringBuilder());
+        }
         summaryBreakPending = false;
         renderBreakPending  = false;
         agentLineStart      = true;
@@ -85,7 +88,9 @@ public final class AgentConsole {
     }
 
     public String getSummaryText() {
-        return summaryBuf.get().toString();
+        synchronized (summaryLock) {
+            return summaryBuf.get().toString();
+        }
     }
 
     /**
@@ -95,22 +100,26 @@ public final class AgentConsole {
      * (e.g. "…relevant files." + "Let me start…" → "…files. Let me start…").
      */
     public void markTextBlockBreak() {
-        if (summaryBuf.get().length() > 0) {
-            summaryBreakPending = true;
-            renderBreakPending  = true;
+        synchronized (summaryLock) {
+            if (summaryBuf.get().length() > 0) {
+                summaryBreakPending = true;
+                renderBreakPending  = true;
+            }
         }
     }
 
     /** Append agent text to the summary buffer, honouring a pending block break. */
     private void appendSummary(String text) {
-        StringBuilder buf = summaryBuf.get();
-        if (summaryBreakPending) {
-            summaryBreakPending = false;
-            boolean bufEndsClean   = buf.length() > 0 && !Character.isWhitespace(buf.charAt(buf.length() - 1));
-            boolean textStartsWord = !text.isEmpty() && !Character.isWhitespace(text.charAt(0));
-            if (bufEndsClean && textStartsWord) buf.append(' ');
+        synchronized (summaryLock) {
+            StringBuilder buf = summaryBuf.get();
+            if (summaryBreakPending) {
+                summaryBreakPending = false;
+                boolean bufEndsClean   = buf.length() > 0 && !Character.isWhitespace(buf.charAt(buf.length() - 1));
+                boolean textStartsWord = !text.isEmpty() && !Character.isWhitespace(text.charAt(0));
+                if (bufEndsClean && textStartsWord) buf.append(' ');
+            }
+            buf.append(text);
         }
-        buf.append(text);
     }
 
     // ── streaming output ──────────────────────────────────────────────────────

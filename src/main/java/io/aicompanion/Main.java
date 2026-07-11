@@ -52,9 +52,15 @@ public class Main {
         }
 
         if (parsed.nonInteractive()) {
-            new TaskRunner(config, parsed.runOptions()).run();
+            try {
+                RunResult result = new TaskRunner(config, parsed.runOptions()).run();
+                System.exit(result.exitCode());
+            } catch (IllegalStateException e) {
+                System.err.println("aicompanion: " + msg(e));
+                System.exit(1);
+            }
         } else {
-            new Shell(config).start();
+            new Shell(config, parsed.runOptions()).start();
         }
     }
 
@@ -83,7 +89,11 @@ public class Main {
     }
 
     private static List<SkillMetadata> discoverSkillsQuietly() {
-        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        return discoverSkillsQuietly(Path.of(".").resolve(SkillRunner.SKILLS_ROOT));
+    }
+
+    private static List<SkillMetadata> discoverSkillsQuietly(Path skillsRoot) {
+        SkillLoader loader = new SkillLoader(skillsRoot);
         List<String> names;
         try {
             names = loader.discover();
@@ -138,7 +148,7 @@ public class Main {
         AgentConsole console = new AgentConsole(terminal);
         FeaturePipeline.GateAsker gate = new JLineGateAsker(LineReaderBuilder.builder().terminal(terminal).build());
 
-        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        SkillLoader loader = new SkillLoader(SkillRunner.skillsRoot(config));
         SkillRunner runner = new SkillRunner(config, console, chatInput, loader);
         FeaturePipeline.SkillInvoker invoker = runner::run;
         FeaturePipeline pipeline = new FeaturePipeline(config, loader, invoker, gate);
