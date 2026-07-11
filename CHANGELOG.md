@@ -22,7 +22,7 @@
 - Three canonical skill bundles under `.agents/skills/` (PRD, TechSpec, tasks) with reference templates (PRD, TechSpec, ADR, question-protocol, task, task-context-schema)
 
 ### Fixed
-- `reuse_session` is now honoured: `reuse_session: false` opens a fresh ACP session (with the short handoff prompt) after every task. Previously the key was documented and displayed but had no effect
+- `reuse_session` is now honoured: `reuse_session: false` opens a fresh ACP session for every task. Previously the key was documented and displayed but had no effect (landed via #17; kept here as the release-level record)
 - Failing test output printed to the console is now truncated with the same head+tail rule as fix-loop prompts (`fix_output_max_lines`), so a chatty test suite no longer floods the terminal
 - `test_command` without the `shell:` prefix now respects single and double quotes when splitting into arguments, so commands like `mvn test -Dtest="Foo Bar"` work; previously the command was split on whitespace only
 - `.idea/` (already gitignored) is no longer tracked in the repository

@@ -21,6 +21,7 @@ public class ConfigLoader {
     public static Config load(Map<String, String> cliOverrides,
                               Map<String, Object> file,
                               Map<String, String> env) {
+        String projectDir = resolve("project_dir", cliOverrides, file, env, ".");
         return new Config(
             resolve("agent",               cliOverrides, file, env, null),
             resolve("model",               cliOverrides, file, env, null),
@@ -28,8 +29,9 @@ public class ConfigLoader {
             resolve("features_dir",        cliOverrides, file, env, "features"),
             resolveList("task_extensions",  cliOverrides, file, env, List.of("md", "txt")),
             resolve("task_sort",           cliOverrides, file, env, "alphabetical"),
-            resolve("project_dir",         cliOverrides, file, env, "."),
-            resolve("test_command",        cliOverrides, file, env, autoDetectTestCommand()),
+            projectDir,
+            resolve("test_command",        cliOverrides, file, env,
+                autoDetectTestCommand(Path.of(projectDir))),
             resolveList("verify_commands",  cliOverrides, file, env, List.of()),
             resolveBoolean("test_enabled",     cliOverrides, file, env, true),
             resolveInt("test_timeout_min",     cliOverrides, file, env, 30),
@@ -167,11 +169,16 @@ public class ConfigLoader {
         }
     }
 
-    private static String autoDetectTestCommand() {
-        if (Files.exists(Path.of("pom.xml")))      return "mvn test -q";
-        if (Files.exists(Path.of("build.gradle"))) return "gradle test";
-        if (Files.exists(Path.of("package.json"))) return "npm test";
-        if (Files.exists(Path.of("Makefile")))     return "make test";
+    /**
+     * Infer a test command from markers in {@code projectRoot}, not the process CWD.
+     * Visible for testing.
+     */
+    static String autoDetectTestCommand(Path projectRoot) {
+        Path root = projectRoot.toAbsolutePath().normalize();
+        if (Files.exists(root.resolve("pom.xml")))      return "mvn test -q";
+        if (Files.exists(root.resolve("build.gradle"))) return "gradle test";
+        if (Files.exists(root.resolve("package.json"))) return "npm test";
+        if (Files.exists(root.resolve("Makefile")))     return "make test";
         return null;
     }
 }
