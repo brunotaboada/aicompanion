@@ -30,6 +30,7 @@ public class ConfigLoader {
             resolve("task_sort",           cliOverrides, file, env, "alphabetical"),
             resolve("project_dir",         cliOverrides, file, env, "."),
             resolve("test_command",        cliOverrides, file, env, autoDetectTestCommand()),
+            resolveList("verify_commands",  cliOverrides, file, env, List.of()),
             resolveBoolean("test_enabled",     cliOverrides, file, env, true),
             resolveInt("test_timeout_min",     cliOverrides, file, env, 30),
             resolveBoolean("stop_on_failure",  cliOverrides, file, env, true),

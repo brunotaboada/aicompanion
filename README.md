@@ -385,6 +385,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `task_sort` | `alphabetical` | Sort order: `alphabetical` or `none` |
 | `project_dir` | `.` | Project root passed to the agent ACP session |
 | `test_command` | auto-detect | Command to run your tests |
+| `verify_commands` | `[]` | List of commands run in order after each task (lint, typecheck, test, …); the first failure feeds the fix loop. Overrides `test_command` when set |
 | `test_enabled` | `true` | Run tests after each task |
 | `test_timeout_min` | `30` | Kill the test command after N minutes and treat it as a failure (`0` = no limit) |
 | `stop_on_failure` | `true` | Stop the run if tests still fail after `max_fix_attempts` |
@@ -471,6 +472,19 @@ test_command: "shell: npm test -- --watchAll=false && ./lint.sh"
 # Expand env vars
 test_command: "shell: $JAVA_HOME/bin/java -jar test-runner.jar"
 ```
+
+**Multiple commands**
+
+Real projects often want lint + typecheck + tests. Set `verify_commands` to run several commands in order after each task:
+
+```yaml
+verify_commands:
+  - npm run lint
+  - npm run typecheck
+  - "shell: npm test -- --watchAll=false"
+```
+
+The commands run in order and the first non-zero exit stops the sequence — its output (and the failing command's name) is what the fix loop feeds back to the agent. After each fix attempt the whole sequence runs again from the start, so a lint fix that breaks the tests is still caught. When `verify_commands` is set, `test_command` is ignored. Each entry supports the same `shell:` prefix and quoting rules as `test_command`. (As a CLI flag or env var, pass a comma-separated list: `--verify-commands "npm run lint,npm test"`.)
 
 **On failure**
 

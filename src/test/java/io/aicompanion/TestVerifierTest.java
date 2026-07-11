@@ -48,6 +48,38 @@ class TestVerifierTest {
     }
 
     @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void multipleCommandsAllPassCombinesOutput() {
+        var result = new TestVerifier(
+            java.util.List.of("echo lint-ok", "echo tests-ok"), CWD, 0).run();
+        assertTrue(result.passed());
+        assertTrue(result.output().contains("lint-ok"));
+        assertTrue(result.output().contains("tests-ok"));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void firstFailingCommandStopsTheRunAndIsNamed(@org.junit.jupiter.api.io.TempDir Path tmp) {
+        Path marker = tmp.resolve("second-ran.txt");
+        var result = new TestVerifier(java.util.List.of(
+            "shell: echo lint-broken; exit 1",
+            "shell: touch " + marker), CWD, 0).run();
+        assertFalse(result.passed());
+        assertEquals("shell: echo lint-broken; exit 1", result.command(),
+            "the failing command should be reported");
+        assertTrue(result.output().contains("lint-broken"));
+        assertFalse(java.nio.file.Files.exists(marker),
+            "commands after the first failure must not run");
+    }
+
+    @Test
+    void emptyCommandListPassesWithoutRunningAnything() {
+        var result = new TestVerifier(java.util.List.of(), CWD, 0).run();
+        assertTrue(result.passed());
+        assertTrue(result.output().contains("no test command"));
+    }
+
+    @Test
     void plainCommandSplitsOnWhitespace() {
         assertEquals(java.util.List.of("mvn", "test", "-q"),
             TestVerifier.buildArgv("mvn  test\t-q"));

@@ -91,7 +91,8 @@ public class TaskRunner {
 
         AgentSpec spec    = AgentRegistry.resolve(config);
         Path      projDir = Path.of(config.projectDir()).toAbsolutePath();
-        var       verifier = new TestVerifier(config.testCommand(), projDir, config.testTimeoutMin());
+        var       verifier = new TestVerifier(config.effectiveVerifyCommands(), projDir,
+                                              config.testTimeoutMin());
         var       reporter = new Reporter(config);
 
         if (runOptions.fresh()) {
@@ -209,9 +210,9 @@ public class TaskRunner {
 
             // Pre-check: if tests already pass for this task, skip the agent
             // round trip entirely. Only attempt when verification is on and a
-            // test command is configured — otherwise there is nothing to check.
+            // verify/test command is configured — otherwise there is nothing to check.
             if (config.preCheckTests() && config.testEnabled()
-                    && config.testCommand() != null && !config.testCommand().isBlank()) {
+                    && !config.effectiveVerifyCommands().isEmpty()) {
                 System.out.println(Ansi.rule());
                 System.out.printf("%s %d/%d: %s %s%n",
                     Ansi.bold("Task"), globalIdx, totalTasks, Ansi.cyan(displayName),
@@ -305,9 +306,9 @@ public class TaskRunner {
             System.out.println(Prompts.truncateOutput(result.output(), config.fixOutputMaxLines()));
 
             String fixPrompt = config.initInstructions()
-                ? Prompts.forFixShort(config.testCommand(), result.output(),
+                ? Prompts.forFixShort(result.command(), result.output(),
                     config.fixOutputMaxLines(), stats.touchedFiles())
-                : Prompts.forFix(config.testCommand(), result.output(),
+                : Prompts.forFix(result.command(), result.output(),
                     config.fixOutputMaxLines(), stats.touchedFiles());
 
             String fixStop = sendPrompt(client,

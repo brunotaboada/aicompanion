@@ -46,6 +46,8 @@ public final class Help {
               --agent <id>              Agent: claude, codex, gemini, copilot, opencode
               --model <name>            Pin a model for the run
               --test-command <cmd>      Override test command
+              --verify-commands <list>  Comma-separated commands run in order
+                                        (first failure feeds the fix loop; overrides test command)
               --timeout <minutes>       ACP session timeout (default: 10)
               --test-timeout <minutes>  Kill the test command after N minutes (default: 30; 0 = no limit)
               --report-dir <dir>        Report output directory
@@ -124,12 +126,12 @@ public final class Help {
 
             Run flags (Tab in the REPL completes them):
               --features <dir>             --project <dir>            --agent <id>
-              --model <name>               --test-command <cmd>       --timeout <min>
-              --test-timeout <min>         --no-tests                 --no-stop-on-failure
-              --log-thoughts               --no-yolo                  --fresh
-              --retry-failed               --pre-check-tests          --task-preamble-strip
-              --init-instructions          --compact-after <N>        --fix-output-lines <N>
-              --max-tokens <N>
+              --model <name>               --test-command <cmd>       --verify-commands <list>
+              --timeout <min>              --test-timeout <min>       --no-tests
+              --no-stop-on-failure         --log-thoughts             --no-yolo
+              --fresh                      --retry-failed             --pre-check-tests
+              --task-preamble-strip        --init-instructions        --compact-after <N>
+              --fix-output-lines <N>       --max-tokens <N>
 
             REPL keys:  Tab=complete  Ctrl+R=history  Ctrl+C=abort  Ctrl+D=quit""" + skillSection;
     }

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **`verify_commands`** — a list of verification commands (lint, typecheck, test, …) run in order after each task; the first non-zero exit stops the sequence and its output plus the failing command's name feed the fix loop. Overrides `test_command` when set; each entry supports the same `shell:` prefix and quoting rules. Available as `verify_commands:` in `.aicompanion.yml`, `--verify-commands "a,b"` on the CLI, and `AICOMPANION_VERIFY_COMMANDS` in the environment
 - **Live status bar** — REPL `run` pins a bottom-row status bar (agent / model / task / tests / fix state) using a DECSTBM scroll region so streamed agent output never collides with it; no-op on dumb/no-TTY terminals. Ported from the `claude/console-ux-improvements-kTU2m` branch onto the current architecture (that branch was cut from a pre-skills snapshot and should be closed unmerged)
 - **Test command timeout** — new `test_timeout_min` setting (`--test-timeout` flag, default 30 minutes, `0` = no limit): the test command is killed (with all its descendants) when it exceeds the limit and the task is treated as failed with the partial output, instead of hanging the run forever
 - **Agent-reported token usage** — when the agent streams ACP usage updates, the run summary and the `max_tokens_per_run` budget use the agent's exact token counts (and cost, when reported) instead of the ~4-chars/token estimate; the estimator remains the fallback for agents that don't report usage
