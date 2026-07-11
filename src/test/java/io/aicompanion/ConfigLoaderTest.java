@@ -195,4 +195,45 @@ class ConfigLoaderTest {
         Config cfg = ConfigLoader.load(Map.of(), file);
         assertEquals("sonnet", cfg.modelFor("create-prd"));
     }
+
+    @Test
+    void testCommandAutoDetectUsesProjectDirNotCwd() throws IOException {
+        Path project = Files.createDirectory(tempDir.resolve("repo"));
+        Files.writeString(project.resolve("pom.xml"), "<project/>");
+
+        Config cfg = ConfigLoader.load(Map.of("project_dir", project.toString()), Map.of());
+        assertEquals("mvn test -q", cfg.testCommand());
+    }
+
+    @Test
+    void testCommandAutoDetectReturnsNullWhenProjectHasNoMarkers() throws IOException {
+        Path project = Files.createDirectory(tempDir.resolve("empty-repo"));
+
+        Config cfg = ConfigLoader.load(Map.of("project_dir", project.toString()), Map.of());
+        assertNull(cfg.testCommand());
+    }
+
+    @Test
+    void explicitTestCommandWinsOverProjectDirAutoDetect() throws IOException {
+        Path project = Files.createDirectory(tempDir.resolve("repo"));
+        Files.writeString(project.resolve("pom.xml"), "<project/>");
+
+        Config cfg = ConfigLoader.load(Map.of(
+            "project_dir",   project.toString(),
+            "test_command",  "make check"
+        ), Map.of());
+        assertEquals("make check", cfg.testCommand());
+    }
+
+    @Test
+    void reuseSessionDefaultsToTrue() {
+        Config cfg = ConfigLoader.load(Map.of(), Map.of());
+        assertTrue(cfg.reuseSession());
+    }
+
+    @Test
+    void reuseSessionCanBeDisabled() {
+        Config cfg = ConfigLoader.load(Map.of("reuse_session", "false"), Map.of());
+        assertFalse(cfg.reuseSession());
+    }
 }
