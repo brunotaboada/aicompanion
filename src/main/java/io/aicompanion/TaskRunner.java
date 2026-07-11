@@ -349,11 +349,20 @@ public class TaskRunner {
      * is true, bank usage from the previous session before switching.
      */
     private void beginSession(AcpSyncClient client, Path projDir, boolean rollover) {
+        beginSession(client, projDir, rollover, true);
+    }
+
+    /**
+     * @param resetTaskCounter when false, leaves {@link #tasksInCurrentSession}
+     *        untouched so compaction can retry if the handoff prompt fails
+     */
+    private void beginSession(AcpSyncClient client, Path projDir, boolean rollover,
+                              boolean resetTaskCounter) {
         if (rollover) stats.rolloverSession();
         NewSessionResponse session = client.newSession(
             new NewSessionRequest(projDir.toString(), List.of()));
-        currentSessionId      = session.sessionId();
-        tasksInCurrentSession = 0;
+        currentSessionId = session.sessionId();
+        if (resetTaskCounter) tasksInCurrentSession = 0;
         System.out.println("Session: " + currentSessionId);
         selectModel(client, currentSessionId, session.models());
         if (config.initInstructions()) sendInitInstructions(client);
@@ -369,14 +378,17 @@ public class TaskRunner {
         int threshold = config.compactAfterNTasks();
         if (threshold <= 0 || tasksInCurrentSession < threshold) return;
         try {
-            beginSession(client, projDir, /*rollover=*/true);
+            beginSession(client, projDir, /*rollover=*/true, /*resetTaskCounter=*/false);
             System.out.println(Ansi.dim("[compact] fresh session after "
                 + threshold + " task(s)"));
             sendPrompt(client, null, Prompts.forCompactHandoff(List.copyOf(recentTaskNames)));
             recentTaskNames.clear();
+            tasksInCurrentSession = 0;
         } catch (RuntimeException e) {
+            // Stay at/above threshold so the handoff is retried on the next task.
+            if (tasksInCurrentSession < threshold) tasksInCurrentSession = threshold;
             System.err.println(Ansi.yellow(
-                "Warning: could not compact session — continuing with current one. ("
+                "Warning: session compaction failed — will retry on the next task. ("
                     + e.getMessage() + ")"));
         }
     }
