@@ -35,7 +35,7 @@ stop_on_failure: true         # stop the whole run if tests still fail after max
 max_fix_attempts: 3           # on test failure, feed the output back to the agent and retry up to N times (0 = disable)
 
 session_timeout_min: 10       # ACP session timeout per task (minutes)
-reuse_session: true           # keep one ACP session across all tasks
+reuse_session: true           # keep one ACP session across all tasks (false = fresh session per task)
 
 report_dir: .aicompanion/logs # directory for per-task markdown summary logs
 report_enabled: true          # write a .md log after each task

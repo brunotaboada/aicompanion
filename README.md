@@ -390,12 +390,18 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `stop_on_failure` | `true` | Stop the run if tests still fail after `max_fix_attempts` |
 | `max_fix_attempts` | `3` | On test failure, feed the output back to the agent and retry up to N times (`0` disables auto-fix) |
 | `session_timeout_min` | `10` | ACP session timeout per task (minutes) |
-| `reuse_session` | `true` | Keep one ACP session across all tasks |
+| `reuse_session` | `true` | Keep one ACP session across all tasks; `false` opens a fresh session for every task |
 | `report_dir` | `.aicompanion/logs` | Directory for per-task Markdown logs |
 | `report_enabled` | `true` | Write a `.md` summary log per task |
 | `log_tool_calls` | `true` | Print `[read]`/`[write]`/`[perm]` events |
 | `log_thoughts` | `false` | Print agent reasoning to console |
 | `yolo` | `true` | Pass `--yolo` to auto-approve agent tool calls |
+| `fix_output_max_lines` | `200` | Max lines of test output shown on failures and sent to fix-loop prompts (head + tail; `0` = unbounded) |
+| `task_preamble_strip` | `false` | Strip everything before the first `#` heading in task files before sending |
+| `compact_after_n_tasks` | `0` | Open a fresh ACP session every N tasks with a short handoff (`0` = never) |
+| `pre_check_tests` | `false` | Run tests before each task; skip the agent call if they already pass |
+| `max_tokens_per_run` | `0` | Stop the run when token usage exceeds this budget (`0` = unlimited) |
+| `init_instructions` | `false` | Send the summary-format rules once per session instead of on every task |
 
 ### Override priority
 
@@ -452,7 +458,7 @@ If `test_command` is not set, aicompanion detects it from your project root:
 
 **Shell mode**
 
-By default the command is split on whitespace and executed directly (no shell). This is the fastest and safest option for simple commands.
+By default the command is split into arguments (single and double quotes are respected, so `mvn test -Dtest="Foo Bar"` works) and executed directly, with no shell. This is the fastest and safest option for simple commands.
 
 If you need pipes, `&&`, environment variable expansion, or any other shell feature, prefix the command with `shell:`:
 

@@ -108,7 +108,7 @@ public class TestVerifier {
     /**
      * `shell:<script>` runs the rest through PowerShell on Windows (falling back
      * to cmd) or /bin/sh on Unix, so users can use pipes, &&, env expansion, etc.
-     * Anything else is whitespace-split and exec'd directly.
+     * Anything else is tokenized (quotes respected) and exec'd directly.
      */
     static List<String> buildArgv(String command) {
         if (command.startsWith("shell:")) {
@@ -122,6 +122,44 @@ public class TestVerifier {
             }
             return List.of("/bin/sh", "-c", script);
         }
-        return List.of(command.split("\\s+"));
+        return tokenize(command);
+    }
+
+    /**
+     * Split a command line into argv, honouring single and double quotes so
+     * arguments with spaces survive (e.g. {@code mvn test -Dtest="Foo Bar"}).
+     * Quotes are stripped from the tokens; an unclosed quote runs to the end
+     * of the string rather than failing.
+     */
+    static List<String> tokenize(String command) {
+        List<String> argv = new java.util.ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inSingle = false, inDouble = false, hasToken = false;
+        for (int i = 0; i < command.length(); i++) {
+            char c = command.charAt(i);
+            if (inSingle) {
+                if (c == '\'') inSingle = false;
+                else cur.append(c);
+            } else if (inDouble) {
+                if (c == '"') inDouble = false;
+                else cur.append(c);
+            } else if (c == '\'') {
+                inSingle = true;
+                hasToken = true;
+            } else if (c == '"') {
+                inDouble = true;
+                hasToken = true;
+            } else if (Character.isWhitespace(c)) {
+                if (hasToken || cur.length() > 0) {
+                    argv.add(cur.toString());
+                    cur.setLength(0);
+                    hasToken = false;
+                }
+            } else {
+                cur.append(c);
+            }
+        }
+        if (hasToken || cur.length() > 0) argv.add(cur.toString());
+        return argv;
     }
 }

@@ -48,6 +48,45 @@ class TestVerifierTest {
     }
 
     @Test
+    void plainCommandSplitsOnWhitespace() {
+        assertEquals(java.util.List.of("mvn", "test", "-q"),
+            TestVerifier.buildArgv("mvn  test\t-q"));
+    }
+
+    @Test
+    void doubleQuotedArgumentKeepsItsSpaces() {
+        assertEquals(java.util.List.of("mvn", "test", "-Dtest=Foo Bar"),
+            TestVerifier.buildArgv("mvn test -Dtest=\"Foo Bar\""));
+    }
+
+    @Test
+    void singleQuotedArgumentKeepsItsSpaces() {
+        assertEquals(java.util.List.of("npm", "run", "test one"),
+            TestVerifier.buildArgv("npm run 'test one'"));
+    }
+
+    @Test
+    void quotedEmptyStringSurvivesAsEmptyToken() {
+        assertEquals(java.util.List.of("cmd", ""),
+            TestVerifier.buildArgv("cmd \"\""));
+    }
+
+    @Test
+    void unclosedQuoteRunsToEndOfCommand() {
+        assertEquals(java.util.List.of("cmd", "a b"),
+            TestVerifier.buildArgv("cmd \"a b"));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void quotedArgumentReachesTheProcessIntact() {
+        var result = new TestVerifier("echo one 'two three'", CWD).run();
+        assertTrue(result.passed());
+        assertEquals("one two three", result.output().trim(),
+            "quotes should be stripped and the quoted arg kept as one word");
+    }
+
+    @Test
     @DisabledOnOs(OS.WINDOWS)
     void interruptDoesNotMaskAsGenericRunnerError() throws Exception {
         var verifier = new TestVerifier("shell: sleep 30", CWD);

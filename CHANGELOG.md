@@ -21,6 +21,10 @@
 - Three canonical skill bundles under `.agents/skills/` (PRD, TechSpec, tasks) with reference templates (PRD, TechSpec, ADR, question-protocol, task, task-context-schema)
 
 ### Fixed
+- `reuse_session` is now honoured: `reuse_session: false` opens a fresh ACP session (with the short handoff prompt) after every task. Previously the key was documented and displayed but had no effect
+- Failing test output printed to the console is now truncated with the same head+tail rule as fix-loop prompts (`fix_output_max_lines`), so a chatty test suite no longer floods the terminal
+- `test_command` without the `shell:` prefix now respects single and double quotes when splitting into arguments, so commands like `mvn test -Dtest="Foo Bar"` work; previously the command was split on whitespace only
+- `.idea/` (already gitignored) is no longer tracked in the repository
 - Escape sequences in `Spinner` (and the new `StatusBar`) now use explicit `\u001b` literals instead of invisible raw ESC bytes embedded in the source
 - `RunState` is now written atomically (write-to-temp + rename), so a crash mid-save can no longer corrupt `.aicompanion/state.yml` and silently wipe all resume state
 - A test-runner I/O error no longer marks the runner thread as interrupted, which could misreport the next task as "aborted by user"; interrupts during a test run now kill the test process tree and report as interrupted

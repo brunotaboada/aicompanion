@@ -302,7 +302,7 @@ public class TaskRunner {
             status.setFix(attempt, config.maxFixAttempts());
             System.out.printf("%s Tests FAILED — fix attempt %d/%d%n",
                 Ansi.red("✗"), attempt, config.maxFixAttempts());
-            System.out.println(result.output());
+            System.out.println(Prompts.truncateOutput(result.output(), config.fixOutputMaxLines()));
 
             String fixPrompt = config.initInstructions()
                 ? Prompts.forFixShort(config.testCommand(), result.output(),
@@ -329,7 +329,7 @@ public class TaskRunner {
             status.setTestsFail();
             System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
                 Ansi.red("✗"), config.maxFixAttempts());
-            System.out.println(result.output());
+            System.out.println(Prompts.truncateOutput(result.output(), config.fixOutputMaxLines()));
             state.markFailed(stateKey, taskHash);
             return !config.stopOnFailure();
         }
@@ -347,14 +347,14 @@ public class TaskRunner {
     }
 
     /**
-     * If {@code compact_after_n_tasks} is set and the current session has
-     * processed that many tasks, end it and start a fresh one. A short
-     * "previously completed" handoff is sent so the agent has context without
-     * inheriting the full transcript.
+     * If a session refresh is due (see {@link #shouldRefreshSession}), end the
+     * current session and start a fresh one. A short "previously completed"
+     * handoff is sent so the agent has context without inheriting the full
+     * transcript.
      */
     private void maybeCompactSession(AcpSyncClient client, Path projDir) {
-        int threshold = config.compactAfterNTasks();
-        if (threshold <= 0 || tasksInCurrentSession < threshold) return;
+        if (!shouldRefreshSession(config.reuseSession(), config.compactAfterNTasks(),
+                tasksInCurrentSession)) return;
         try {
             // Bank the old session's figures before opening a fresh one — the ACP
             // consumer may apply the new session's usage_update immediately.
@@ -376,6 +376,19 @@ public class TaskRunner {
                 "Warning: could not compact session — continuing with current one. ("
                     + e.getMessage() + ")"));
         }
+    }
+
+    /**
+     * A session refresh is due when {@code reuse_session=false} and the current
+     * session has already shipped a task (fresh session per task), or when
+     * {@code compact_after_n_tasks} is set and the session has reached that
+     * many tasks.
+     */
+    static boolean shouldRefreshSession(boolean reuseSession, int compactAfterNTasks,
+                                        int tasksInCurrentSession) {
+        if (tasksInCurrentSession < 1) return false;
+        if (!reuseSession) return true;
+        return compactAfterNTasks > 0 && tasksInCurrentSession >= compactAfterNTasks;
     }
 
     private boolean budgetExceeded() {
