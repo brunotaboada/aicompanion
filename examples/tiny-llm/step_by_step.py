@@ -1,54 +1,59 @@
-"""Step-by-step building blocks (matches the blog post sections)."""
-
-from __future__ import annotations
+"""Tiny demos that match the blog post (small numbers, easy to read)."""
 
 import numpy as np
 
-from tiny_llm.layers import causal_mask, positional_encoding, softmax
-from tiny_llm.vocab import VOCAB, WORD_TO_ID, tokenize
+
+def demo_tokenize():
+    vocab = ["the", "cat", "dog", "sat", "mat", "END"]
+    word_to_id = {w: i for i, w in enumerate(vocab)}
+    ids = [word_to_id[w] for w in "the cat sat".split()]
+    print("tokenize('the cat sat') ->", ids)
 
 
-def demo_softmax() -> None:
-    scores = np.array([2.3, 5.1, -1.2, 0.4])
+def demo_embeddings():
+    embeddings = {
+        "the": np.array([0.1, 0.0, 0.0]),
+        "cat": np.array([0.0, 0.8, 0.2]),
+        "dog": np.array([0.0, 0.7, 0.3]),
+        "sat": np.array([0.2, 0.1, 0.9]),
+    }
+    cat, dog = embeddings["cat"], embeddings["dog"]
+    print("cat vector:", cat)
+    print("dog vector:", dog)
+    print("cat·dog =", float(cat @ dog), "(similar)")
+    print("cat·sat =", float(cat @ embeddings["sat"]), "(less similar)")
+
+
+def demo_softmax():
+    def softmax(scores):
+        e = np.exp(scores - scores.max())
+        return e / e.sum()
+
+    scores = np.array([4.0, 1.0, 0.5])  # mat, sat, dog
     probs = softmax(scores)
-    print("softmax scores ->", dict(zip(["mat", "floor", "banana", "rug"], probs.round(3))))
+    for word, p in zip(["mat", "sat", "dog"], probs):
+        print(f"  {word}: {p:.0%}")
 
 
-def demo_embeddings() -> None:
-    rng = np.random.default_rng(0)
-    d_model = 8
-    embeddings = rng.normal(0, 0.2, (len(VOCAB), d_model))
-    cat = embeddings[WORD_TO_ID["cat"]]
-    dog = embeddings[WORD_TO_ID["dog"]]
-    table = embeddings[WORD_TO_ID["mat"]]  # closest furniture word in vocab
-    print("cat·dog =", float(cat @ dog))
-    print("cat·mat =", float(cat @ table))
+def demo_attention():
+    embeddings = {
+        "the": np.array([0.1, 0.0, 0.0]),
+        "cat": np.array([0.0, 0.8, 0.2]),
+    }
 
-
-def demo_attention_weights() -> None:
-    ids = tokenize("the big cat sat")
-    rng = np.random.default_rng(1)
-    d_model = 8
-    embeddings = rng.normal(0, 0.2, (len(VOCAB), d_model))
-    x = embeddings[ids] + positional_encoding(len(ids), d_model)
-
-    w_q = rng.normal(0, 0.1, (d_model, d_model))
-    w_k = rng.normal(0, 0.1, (d_model, d_model))
-    q = x @ w_q
-    k = x @ w_k
-    scores = q @ k.T / np.sqrt(d_model) + causal_mask(len(ids))
-    weights = softmax(scores, axis=-1)
-
-    words = ["the", "big", "cat", "sat"]
-    print("attention weights (rows attend to columns):")
-    for i, word in enumerate(words):
-        row = ", ".join(f"{w}:{weights[i, j]:.2f}" for j, w in enumerate(words))
-        print(f"  {word:>3} -> {row}")
+    # Manual weights: "cat" matters most
+    weights = np.array([0.1, 0.9])
+    context = weights[0] * embeddings["the"] + weights[1] * embeddings["cat"]
+    print("weights: the=10%, cat=90%")
+    print("context vector:", context.round(2))
 
 
 if __name__ == "__main__":
-    demo_softmax()
-    print()
+    print("=== tokenize ===")
+    demo_tokenize()
+    print("\n=== embeddings ===")
     demo_embeddings()
-    print()
-    demo_attention_weights()
+    print("\n=== softmax ===")
+    demo_softmax()
+    print("\n=== attention ===")
+    demo_attention()
