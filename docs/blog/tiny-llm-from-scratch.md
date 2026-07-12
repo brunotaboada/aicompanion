@@ -9,8 +9,6 @@ This post walks through a **tiny GPT with only 20 words**, in pure NumPy. We'll 
 > **Runnable code:** `examples/tiny-llm/`  
 > `pip install -r requirements.txt && python3 train.py`
 
-Inspired by [algo.monster/courses/llm](https://algo.monster/courses/llm/llm_course_introduction).
-
 ---
 
 ## What an LLM Actually Does
@@ -210,7 +208,6 @@ Once you see the loop, everyday LLM behavior makes sense:
 
 ## Next Steps
 
-- Interactive course: [algo.monster/courses/llm](https://algo.monster/courses/llm/llm_course_introduction)
 - Full code: `examples/tiny-llm/`
 - Original paper: [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
 

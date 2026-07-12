@@ -18,7 +18,7 @@ python3 train.py          # train ~10s on CPU, then generate
 | `tiny_llm/vocab.py` | 20-word vocabulary + tokenization |
 | `tiny_llm/layers.py` | softmax, attention, layer norm, FFN |
 | `tiny_llm/model.py` | full transformer block + train/generate |
-| `tiny_llm/data.py` | course-style training sentences |
+| `tiny_llm/data.py` | training sentences |
 | `step_by_step.py` | small building-block demos |
 | `train.py` | train and run generation prompts |
 

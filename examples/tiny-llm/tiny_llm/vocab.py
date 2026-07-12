@@ -1,4 +1,4 @@
-"""20-word vocabulary from the algo.monster tiny GPT course."""
+"""20-word vocabulary for the tiny GPT demo."""
 
 VOCAB = [
     "the", "cat", "dog", "sat", "ran", "on", "mat", "house", "a",
@@ -15,7 +15,7 @@ VOCAB_SIZE = len(VOCAB)
 
 
 def tokenize(text: str) -> list[int]:
-    """Split on whitespace; reject unknown words (like the course demo)."""
+    """Split on whitespace; reject unknown words."""
     tokens = []
     for word in text.lower().strip().split():
         if word not in WORD_TO_ID:

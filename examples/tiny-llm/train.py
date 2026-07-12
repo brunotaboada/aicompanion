@@ -1,4 +1,4 @@
-"""Train the tiny GPT on course-style sentences."""
+"""Train the tiny GPT on sample sentences."""
 
 from __future__ import annotations
 
