@@ -58,6 +58,9 @@ public class Main {
             } catch (IllegalStateException e) {
                 System.err.println("aicompanion: " + msg(e));
                 System.exit(1);
+            } catch (IOException e) {
+                System.err.println("aicompanion: I/O error — " + msg(e));
+                System.exit(1);
             }
         } else {
             new Shell(config, parsed.runOptions()).start();
