@@ -10,5 +10,13 @@ package io.aicompanion.skill;
  * @param description       one-line summary shown by the {@code skills} command
  * @param outputRelativePath path the agent writes, relative to {@code features/<feature>/}
  *                          (e.g. {@code _prd.md})
+ * @param completionRelativePath optional extra path that must also appear newly
+ *                          written during the session (e.g. {@code tasks/task_01.md})
  */
-public record SkillMetadata(String name, String description, String outputRelativePath) {}
+public record SkillMetadata(String name, String description, String outputRelativePath,
+                            String completionRelativePath) {
+
+    public SkillMetadata(String name, String description, String outputRelativePath) {
+        this(name, description, outputRelativePath, null);
+    }
+}

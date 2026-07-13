@@ -43,6 +43,7 @@ public final class FlagParser {
                 case "--agent"               -> { if (i + 1 < tokens.length) overrides.put("agent",                tokens[++i]); }
                 case "--model"               -> { if (i + 1 < tokens.length) overrides.put("model",                tokens[++i]); }
                 case "--test-command"        -> { if (i + 1 < tokens.length) overrides.put("test_command",         tokens[++i]); }
+                case "--verify-commands"     -> { if (i + 1 < tokens.length) overrides.put("verify_commands",      tokens[++i]); }
                 case "--timeout"             -> { if (i + 1 < tokens.length) overrides.put("session_timeout_min",  tokens[++i]); }
                 case "--test-timeout"        -> { if (i + 1 < tokens.length) overrides.put("test_timeout_min",     tokens[++i]); }
                 case "--report-dir"          -> { if (i + 1 < tokens.length) overrides.put("report_dir",           tokens[++i]); }

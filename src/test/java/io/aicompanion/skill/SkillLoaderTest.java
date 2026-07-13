@@ -49,6 +49,17 @@ class SkillLoaderTest {
     // ── describe ─────────────────────────────────────────────────────────────
 
     @Test
+    void describeAcceptsRelativeSkillsRootWhenResolvedUnderCwd() throws IOException {
+        Path relative = Path.of(".agents", "skills");
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            Files.isRegularFile(relative.resolve("create-prd/SKILL.md")),
+            "requires repo .agents/skills/create-prd/SKILL.md");
+
+        SkillMetadata md = new SkillLoader(relative).describe("create-prd");
+        assertEquals("create-prd", md.name());
+    }
+
+    @Test
     void describeParsesFrontmatter() throws IOException {
         Path root = tempDir.resolve("skills");
         writeSkill(root, "create-prd", "Make a PRD interactively", "_prd.md", "body text");

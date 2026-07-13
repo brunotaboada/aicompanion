@@ -42,6 +42,22 @@ class SkillRunnerTest {
     }
 
     @Test
+    void skillsRootWithDotProjectDirIsAbsolute() {
+        Config cfg = ConfigLoader.load(Map.of(), Map.of("project_dir", "."));
+        Path root = SkillRunner.skillsRoot(cfg);
+        assertTrue(root.isAbsolute(), "skills root must be absolute: " + root);
+        assertTrue(root.endsWith(Path.of(".agents", "skills")), root::toString);
+    }
+
+    @Test
+    void skillsRootWithRelativeProjectDirIsAbsolute(@TempDir Path tempDir) {
+        Config cfg = ConfigLoader.load(Map.of(), Map.of("project_dir", tempDir.toString()));
+        Path root = SkillRunner.skillsRoot(cfg);
+        assertTrue(root.isAbsolute(), "skills root must be absolute: " + root);
+        assertEquals(tempDir.resolve(".agents/skills").toAbsolutePath().normalize(), root);
+    }
+
+    @Test
     void modelOverrideWinsOverSkillConfig() {
         // --model on the command line beats skills.create-prd.model. We can't
         // exercise the full run() without an agent, but the priority is

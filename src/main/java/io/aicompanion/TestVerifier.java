@@ -3,38 +3,73 @@ package io.aicompanion;
 import io.aicompanion.util.Platform;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class TestVerifier {
 
-    private final String command;
-    private final Path   projectDir;
-    private final long   timeoutMillis;
+    private final List<String> commands;
+    private final Path         projectDir;
+    private final long         timeoutMillis;
 
     public TestVerifier(String command, Path projectDir) {
         this(command, projectDir, 0);
     }
 
-    /** @param timeoutMin kill the test command after this many minutes; {@code <= 0} = no limit */
+    /** @param timeoutMin kill each command after this many minutes; {@code <= 0} = no limit */
     public TestVerifier(String command, Path projectDir, int timeoutMin) {
-        this(command, projectDir, timeoutMin * 60_000L);
+        this(toList(command), projectDir, timeoutMin * 60_000L);
+    }
+
+    /** @param commands verification commands, run in order; the first failure stops the run */
+    public TestVerifier(List<String> commands, Path projectDir, int timeoutMin) {
+        this(commands, projectDir, timeoutMin * 60_000L);
     }
 
     /** Millisecond-granular variant so tests can exercise the kill path quickly. */
     TestVerifier(String command, Path projectDir, long timeoutMillis) {
-        this.command       = command;
+        this(toList(command), projectDir, timeoutMillis);
+    }
+
+    TestVerifier(List<String> commands, Path projectDir, long timeoutMillis) {
+        this.commands      = commands;
         this.projectDir    = projectDir;
         this.timeoutMillis = timeoutMillis;
     }
 
-    public record Result(boolean passed, String output) {}
+    private static List<String> toList(String command) {
+        return command == null || command.isBlank() ? List.of() : List.of(command);
+    }
 
+    /** @param command the command this result came from; {@code null} when nothing ran */
+    public record Result(boolean passed, String output, String command) {
+        public Result(boolean passed, String output) {
+            this(passed, output, null);
+        }
+    }
+
+    /**
+     * Run every command in order. The first non-zero exit (or timeout) stops
+     * the run and its result — output plus the offending command — is
+     * returned, so fix prompts can name what actually failed.
+     */
     public Result run() {
-        if (command == null || command.isBlank()) {
+        if (commands.isEmpty()) {
             return new Result(true, "(no test command configured — skipping verification)");
         }
+        StringBuilder combined = new StringBuilder();
+        for (String command : commands) {
+            Result result = runOne(command);
+            if (!result.passed()) return result;
+            if (commands.size() > 1) combined.append("$ ").append(command).append('\n');
+            combined.append(result.output());
+        }
+        return new Result(true, combined.toString());
+    }
+
+    private Result runOne(String command) {
         Process proc = null;
         try {
             var pb = new ProcessBuilder(buildArgv(command));
@@ -66,20 +101,21 @@ public class TestVerifier {
                 drain.join(2_000);
                 return new Result(false,
                     "Test command timed out after " + humanTimeout() + ": `" + command + "`\n"
-                    + "The process was killed. Partial output:\n" + buf.toString());
+                    + "The process was killed. Partial output:\n"
+                    + buf.toString(StandardCharsets.UTF_8), command);
             }
 
             // The pipe can stay open past process exit when a grandchild
             // inherited stdout (e.g. a dev server the tests left running), so
             // bound the wait for the drain thread rather than joining forever.
             drain.join(10_000);
-            return new Result(proc.exitValue() == 0, buf.toString());
+            return new Result(proc.exitValue() == 0, buf.toString(StandardCharsets.UTF_8), command);
         } catch (IOException e) {
-            return new Result(false, "Test runner error: " + e.getMessage());
+            return new Result(false, "Test runner error: " + e.getMessage(), command);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             if (proc != null) destroyTree(proc);
-            return new Result(false, "Test run interrupted: " + e.getMessage());
+            return new Result(false, "Test run interrupted: " + e.getMessage(), command);
         }
     }
 
@@ -108,7 +144,7 @@ public class TestVerifier {
     /**
      * `shell:<script>` runs the rest through PowerShell on Windows (falling back
      * to cmd) or /bin/sh on Unix, so users can use pipes, &&, env expansion, etc.
-     * Anything else is whitespace-split and exec'd directly.
+     * Anything else is tokenized (quotes respected) and exec'd directly.
      */
     static List<String> buildArgv(String command) {
         if (command.startsWith("shell:")) {
@@ -122,6 +158,44 @@ public class TestVerifier {
             }
             return List.of("/bin/sh", "-c", script);
         }
-        return List.of(command.split("\\s+"));
+        return tokenize(command);
+    }
+
+    /**
+     * Split a command line into argv, honouring single and double quotes so
+     * arguments with spaces survive (e.g. {@code mvn test -Dtest="Foo Bar"}).
+     * Quotes are stripped from the tokens; an unclosed quote runs to the end
+     * of the string rather than failing.
+     */
+    static List<String> tokenize(String command) {
+        List<String> argv = new java.util.ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inSingle = false, inDouble = false, hasToken = false;
+        for (int i = 0; i < command.length(); i++) {
+            char c = command.charAt(i);
+            if (inSingle) {
+                if (c == '\'') inSingle = false;
+                else cur.append(c);
+            } else if (inDouble) {
+                if (c == '"') inDouble = false;
+                else cur.append(c);
+            } else if (c == '\'') {
+                inSingle = true;
+                hasToken = true;
+            } else if (c == '"') {
+                inDouble = true;
+                hasToken = true;
+            } else if (Character.isWhitespace(c)) {
+                if (hasToken || cur.length() > 0) {
+                    argv.add(cur.toString());
+                    cur.setLength(0);
+                    hasToken = false;
+                }
+            } else {
+                cur.append(c);
+            }
+        }
+        if (hasToken || cur.length() > 0) argv.add(cur.toString());
+        return argv;
     }
 }

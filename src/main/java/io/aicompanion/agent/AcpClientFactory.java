@@ -125,6 +125,11 @@ public final class AcpClientFactory {
                 String tool = req.toolCall() != null ? req.toolCall().title() : "unknown";
                 console.logEvent(Ansi.dim("[perm ] auto-approved: " + tool));
                 List<PermissionOption> opts = req.options();
+                if (opts.isEmpty()) {
+                    console.logEvent(Ansi.yellow(
+                        "[perm ] agent sent no permission options — cannot auto-approve"));
+                    return new RequestPermissionResponse(new PermissionCancelled());
+                }
                 String chosen = opts.stream()
                     .filter(o -> o.kind() != null
                         && o.kind().name().contains("ALLOW_ALWAYS"))

@@ -45,6 +45,33 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void verifyCommandsDefaultToEmptyAndFallBackToTestCommand() {
+        Config cfg = ConfigLoader.load(Map.of("test_command", "mvn test -q"), Map.of());
+        assertTrue(cfg.verifyCommands().isEmpty());
+        assertEquals(List.of("mvn test -q"), cfg.effectiveVerifyCommands());
+    }
+
+    @Test
+    void verifyCommandsFromFileListOverrideTestCommand() {
+        Config cfg = ConfigLoader.load(Map.of("test_command", "mvn test -q"),
+            Map.of("verify_commands", List.of("npm run lint", "npm test")));
+        assertEquals(List.of("npm run lint", "npm test"), cfg.effectiveVerifyCommands());
+    }
+
+    @Test
+    void verifyCommandsFromCliAreCommaSplitAndTrimmed() {
+        Config cfg = ConfigLoader.load(
+            Map.of("verify_commands", "npm run lint, npm test"), Map.of());
+        assertEquals(List.of("npm run lint", "npm test"), cfg.effectiveVerifyCommands());
+    }
+
+    @Test
+    void effectiveVerifyCommandsEmptyWhenNothingConfigured() {
+        Config cfg = ConfigLoader.load(Map.of("test_command", ""), Map.of());
+        assertTrue(cfg.effectiveVerifyCommands().isEmpty());
+    }
+
+    @Test
     void nullAgentWhenNotConfigured() {
         Config cfg = ConfigLoader.load(Map.of(), Map.of());
         assertNull(cfg.agent());

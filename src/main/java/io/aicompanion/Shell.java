@@ -34,7 +34,7 @@ public class Shell {
 
     private static final List<String> RUN_FLAGS = List.of(
         "--features", "--agent", "--model", "--project", "--test-command",
-        "--test-timeout",
+        "--verify-commands", "--test-timeout",
         "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
         "--fresh", "--retry-failed",
         "--pre-check-tests", "--task-preamble-strip", "--init-instructions",
@@ -50,8 +50,15 @@ public class Shell {
     /** Accumulated `config set` overrides — survives across multiple set commands. */
     private final Map<String, String> runtimeOverrides = new LinkedHashMap<>();
 
+    private final RunOptions defaultRunOptions;
+
     public Shell(Config config) {
+        this(config, RunOptions.defaults());
+    }
+
+    public Shell(Config config, RunOptions defaultRunOptions) {
         this.config = config;
+        this.defaultRunOptions = defaultRunOptions;
     }
 
     public void start() throws Exception {
@@ -128,7 +135,7 @@ public class Shell {
     // ── skill discovery ──────────────────────────────────────────────────────
 
     private List<SkillMetadata> discoverSkillsWithReporting() {
-        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        SkillLoader loader = new SkillLoader(SkillRunner.skillsRoot(config));
         List<SkillMetadata> found = new ArrayList<>();
         try {
             for (String name : loader.discover()) {
@@ -155,9 +162,10 @@ public class Shell {
 
     private void handleRun(String[] parts, Terminal terminal) {
         FlagParser.ParseResult parsed = FlagParser.parse(parts, 1);
-        Config effective = parsed.configOverrides().isEmpty()
-            ? config
-            : ConfigLoader.load(parsed.configOverrides());
+        Map<String, String> merged = new LinkedHashMap<>(runtimeOverrides);
+        merged.putAll(parsed.configOverrides());
+        Config effective = ConfigLoader.load(merged);
+        RunOptions opts = mergeRunOptions(parsed.runOptions(), defaultRunOptions);
 
         // Pin a status bar at the bottom of the screen for the duration of
         // the run, then route Ctrl+C to a thread interrupt so the runner can
@@ -178,7 +186,13 @@ public class Shell {
         System.setErr(routed);
 
         try {
-            new TaskRunner(effective, parsed.runOptions(), terminal, bar).run();
+            RunResult result = new TaskRunner(effective, opts, terminal, bar).run();
+            if (result.outcome() == RunResult.Outcome.FAILURE
+                    || result.outcome() == RunResult.Outcome.BUDGET_EXCEEDED) {
+                System.out.println(Ansi.yellow("Run finished with failures."));
+            }
+        } catch (IllegalStateException e) {
+            System.err.println(Ansi.red(e.getMessage()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println(Ansi.yellow("\nAborted."));
@@ -220,11 +234,11 @@ public class Shell {
 
     private void handleSkills() {
         if (skills.isEmpty()) {
-            System.out.println(Ansi.yellow("No skills found at " + SkillRunner.SKILLS_ROOT + "."));
+            System.out.println(Ansi.yellow("No skills found at " + SkillRunner.skillsRoot(config) + "."));
             System.out.println(Ansi.dim("Tip: run `init skills` to scaffold the canonical bundles."));
             return;
         }
-        System.out.println("Skills in " + Ansi.cyan(SkillRunner.SKILLS_ROOT.toString()) + ":");
+        System.out.println("Skills in " + Ansi.cyan(SkillRunner.skillsRoot(config).toString()) + ":");
         for (SkillMetadata md : skills) {
             System.out.printf("  %s %-22s %s%n",
                 Ansi.green("✓"), md.name(), Ansi.dim(md.description()));
@@ -284,7 +298,7 @@ public class Shell {
         LineReader gateReader = LineReaderBuilder.builder().terminal(terminal).build();
         FeaturePipeline.GateAsker gate = new JLineGateAsker(gateReader);
 
-        SkillLoader loader = new SkillLoader(SkillRunner.SKILLS_ROOT);
+        SkillLoader loader = new SkillLoader(SkillRunner.skillsRoot(config));
         SkillRunner runner = new SkillRunner(config, console, chatInput, loader);
         FeaturePipeline.SkillInvoker invoker = runner::run;
         FeaturePipeline pipeline = new FeaturePipeline(config, loader, invoker, gate);
@@ -471,6 +485,8 @@ public class Shell {
         row("task_sort",           config.taskSort());
         row("project_dir",         config.projectDir());
         row("test_command",        config.testCommand()  != null ? config.testCommand() : "(auto-detect)");
+        row("verify_commands",     config.verifyCommands().isEmpty()
+                                       ? "(test_command)" : config.verifyCommands().toString());
         row("test_enabled",        String.valueOf(config.testEnabled()));
         row("test_timeout_min",    String.valueOf(config.testTimeoutMin()));
         row("stop_on_failure",     String.valueOf(config.stopOnFailure()));
@@ -574,6 +590,13 @@ public class Shell {
             .option(LineReader.Option.HISTORY_IGNORE_DUPS,  true)
             .option(LineReader.Option.HISTORY_IGNORE_SPACE, true)
             .build();
+    }
+
+    private static RunOptions mergeRunOptions(RunOptions parsed, RunOptions defaults) {
+        return new RunOptions(
+            parsed.fresh() || defaults.fresh(),
+            parsed.retryFailed() || defaults.retryFailed(),
+            parsed.dryRunTokens() || defaults.dryRunTokens());
     }
 
     /** Null-safe exception message — avoids "Error: null" on exceptions with no detail text. */

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **`verify_commands`** — a list of verification commands (lint, typecheck, test, …) run in order after each task; the first non-zero exit stops the sequence and its output plus the failing command's name feed the fix loop. Overrides `test_command` when set; each entry supports the same `shell:` prefix and quoting rules. Available as `verify_commands:` in `.aicompanion.yml`, `--verify-commands "a,b"` on the CLI, and `AICOMPANION_VERIFY_COMMANDS` in the environment
 - **Live status bar** — REPL `run` pins a bottom-row status bar (agent / model / task / tests / fix state) using a DECSTBM scroll region so streamed agent output never collides with it; no-op on dumb/no-TTY terminals. Ported from the `claude/console-ux-improvements-kTU2m` branch onto the current architecture (that branch was cut from a pre-skills snapshot and should be closed unmerged)
 - **Test command timeout** — new `test_timeout_min` setting (`--test-timeout` flag, default 30 minutes, `0` = no limit): the test command is killed (with all its descendants) when it exceeds the limit and the task is treated as failed with the partial output, instead of hanging the run forever
 - **Agent-reported token usage** — when the agent streams ACP usage updates, the run summary and the `max_tokens_per_run` budget use the agent's exact token counts (and cost, when reported) instead of the ~4-chars/token estimate; the estimator remains the fallback for agents that don't report usage
@@ -21,6 +22,10 @@
 - Three canonical skill bundles under `.agents/skills/` (PRD, TechSpec, tasks) with reference templates (PRD, TechSpec, ADR, question-protocol, task, task-context-schema)
 
 ### Fixed
+- `reuse_session` is now honoured: `reuse_session: false` opens a fresh ACP session for every task. Previously the key was documented and displayed but had no effect (landed via #17; kept here as the release-level record)
+- Failing test output printed to the console is now truncated with the same head+tail rule as fix-loop prompts (`fix_output_max_lines`), so a chatty test suite no longer floods the terminal
+- `test_command` without the `shell:` prefix now respects single and double quotes when splitting into arguments, so commands like `mvn test -Dtest="Foo Bar"` work; previously the command was split on whitespace only
+- `.idea/` (already gitignored) is no longer tracked in the repository
 - Escape sequences in `Spinner` (and the new `StatusBar`) now use explicit `\u001b` literals instead of invisible raw ESC bytes embedded in the source
 - `RunState` is now written atomically (write-to-temp + rename), so a crash mid-save can no longer corrupt `.aicompanion/state.yml` and silently wipe all resume state
 - A test-runner I/O error no longer marks the runner thread as interrupted, which could misreport the next task as "aborted by user"; interrupts during a test run now kill the test process tree and report as interrupted
