@@ -22,6 +22,11 @@ public class ConfigLoader {
                               Map<String, Object> file,
                               Map<String, String> env) {
         String projectDir = resolve("project_dir", cliOverrides, file, env, ".");
+        Path   projectPath = Path.of(projectDir);
+        String testCommand = resolve("test_command", cliOverrides, file, env,
+            autoDetectTestCommand(projectPath));
+        List<String> verifyCommands = resolveVerifyCommands(
+            cliOverrides, file, env, projectPath);
         return new Config(
             resolve("agent",               cliOverrides, file, env, null),
             resolve("model",               cliOverrides, file, env, null),
@@ -30,9 +35,8 @@ public class ConfigLoader {
             resolveList("task_extensions",  cliOverrides, file, env, List.of("md", "txt")),
             resolve("task_sort",           cliOverrides, file, env, "alphabetical"),
             projectDir,
-            resolve("test_command",        cliOverrides, file, env,
-                autoDetectTestCommand(Path.of(projectDir))),
-            resolveList("verify_commands",  cliOverrides, file, env, List.of()),
+            testCommand,
+            verifyCommands,
             resolveBoolean("test_enabled",     cliOverrides, file, env, true),
             resolveInt("test_timeout_min",     cliOverrides, file, env, 30),
             resolveBoolean("stop_on_failure",  cliOverrides, file, env, true),
@@ -134,6 +138,36 @@ public class ConfigLoader {
         }
 
         return Map.copyOf(result);
+    }
+
+    /**
+     * Resolve {@code verify_commands}: explicit CLI / env / file values win as
+     * written (order preserved). When unset, auto-detect a fail-fast pipeline
+     * (lint → typecheck → test) from project markers so cheap checks run first.
+     */
+    private static List<String> resolveVerifyCommands(Map<String, String> cli,
+                                                      Map<String, Object> file,
+                                                      Map<String, String> env,
+                                                      Path projectDir) {
+        if (cli != null && cli.containsKey("verify_commands")) {
+            return trimAll(Arrays.asList(cli.get("verify_commands").split(",")));
+        }
+        String envVal = env.get("AICOMPANION_VERIFY_COMMANDS");
+        if (envVal != null && !envVal.isBlank()) {
+            return trimAll(Arrays.asList(envVal.split(",")));
+        }
+        Object val = file.get("verify_commands");
+        if (val instanceof List<?> list) {
+            return trimAll(list.stream().map(String::valueOf).toList());
+        }
+        if (val instanceof String s && !s.isBlank()) {
+            return trimAll(Arrays.asList(s.split(",")));
+        }
+        return VerifyCommandDetector.detect(projectDir);
+    }
+
+    private static List<String> trimAll(List<String> raw) {
+        return raw.stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
     private static Map<String, Object> loadFile() {

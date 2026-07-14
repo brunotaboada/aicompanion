@@ -55,7 +55,7 @@ CLI flags and environment variables (`AICOMPANION_<KEY>`) override the file.
 | `task_sort` | `alphabetical` | Sort: `alphabetical`, `none` |
 | `project_dir` | `.` | Project root passed to the agent session |
 | `test_command` | auto-detect | Shell command to run tests |
-| `verify_commands` | `[]` | Commands run in order after each task; first failure feeds the fix loop (overrides `test_command`) |
+| `verify_commands` | auto-detect / `[]` | Fail-fast ordered checks (lint → typecheck → test); first failure feeds the fix loop (overrides `test_command`). Auto-detects from package.json / Makefile when unset |
 | `test_enabled` | `true` | Run tests after each task |
 | `test_timeout_min` | `30` | Kill the test command after N minutes (0 = no limit) |
 | `stop_on_failure` | `true` | Stop on first test failure |

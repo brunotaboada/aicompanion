@@ -139,6 +139,10 @@ public class TaskRunner {
         System.out.println("Features: " + batches.size()
             + "  (" + totalTasks + " task" + (totalTasks == 1 ? "" : "s") + ")");
         System.out.println("Dir     : " + projDir);
+        List<String> verify = config.effectiveVerifyCommands();
+        if (config.testEnabled() && !verify.isEmpty()) {
+            System.out.println("Verify  : " + String.join(" → ", verify));
+        }
         if (config.maxTokensPerRun() > 0) {
             System.out.println("Budget  : " + config.maxTokensPerRun() + " tokens (estimated)");
         }
