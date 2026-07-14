@@ -121,30 +121,33 @@ class ConfigLoaderTest {
     @Test
     void tokenSavingDefaultsArePreserved() {
         Config cfg = ConfigLoader.load(Map.of(), Map.of());
-        assertEquals(200, cfg.fixOutputMaxLines());
-        assertFalse(cfg.taskPreambleStrip());
+        assertEquals(120, cfg.fixOutputMaxLines());
+        assertTrue(cfg.taskPreambleStrip());
         assertEquals(0,   cfg.compactAfterNTasks());
+        assertEquals(70,  cfg.compactAtContextPct());
         assertFalse(cfg.preCheckTests());
         assertEquals(0,   cfg.maxTokensPerRun());
-        assertFalse(cfg.initInstructions());
+        assertTrue(cfg.initInstructions());
     }
 
     @Test
     void tokenSavingOverridesApply() {
         Config cfg = ConfigLoader.load(Map.of(
             "fix_output_max_lines",   "50",
-            "task_preamble_strip",    "true",
+            "task_preamble_strip",    "false",
             "compact_after_n_tasks",  "5",
+            "compact_at_context_pct", "40",
             "pre_check_tests",        "true",
             "max_tokens_per_run",     "100000",
-            "init_instructions",      "true"
+            "init_instructions",      "false"
         ), Map.of());
         assertEquals(50,     cfg.fixOutputMaxLines());
-        assertTrue(cfg.taskPreambleStrip());
+        assertFalse(cfg.taskPreambleStrip());
         assertEquals(5,      cfg.compactAfterNTasks());
+        assertEquals(40,     cfg.compactAtContextPct());
         assertTrue(cfg.preCheckTests());
         assertEquals(100000, cfg.maxTokensPerRun());
-        assertTrue(cfg.initInstructions());
+        assertFalse(cfg.initInstructions());
     }
 
     @Test

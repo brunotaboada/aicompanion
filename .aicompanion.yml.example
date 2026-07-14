@@ -29,10 +29,11 @@ task_sort: alphabetical       # alphabetical | none — applies to both feature 
 project_dir: .               # project root passed to the agent ACP session
 
 # test_command: mvn test -q  # defaults: auto-detect from pom.xml / package.json / Makefile
-# verify_commands:            # run several commands in order instead of test_command;
-#   - npm run lint            # the first non-zero exit stops the sequence and feeds the
-#   - npm run typecheck       # fix loop. Entries support the same shell: prefix and
-#   - npm test                # quoting rules as test_command.
+# verify_commands:            # ordered pipeline; first failure stops and feeds the fix loop.
+#   - npm run lint            # put cheap checks FIRST (lint → typecheck → test) so failures
+#   - npm run typecheck       # short-circuit before a full suite. Overrides test_command.
+#   - npm test                # When unset, auto-detects this ordering from package.json
+#                             # scripts or Makefile targets if lint/typecheck exist.
 test_enabled: true            # run tests after each task
 test_timeout_min: 30          # kill the test command after N minutes, counting it as a failure (0 = no limit)
 stop_on_failure: true         # stop the whole run if tests still fail after max_fix_attempts
@@ -50,9 +51,10 @@ log_thoughts: false           # print agent reasoning / working to console
 yolo: true                    # pass --yolo to the agent (auto-approve its tool calls)
 
 # ── Token-saving options ────────────────────────────────────────────────────
-fix_output_max_lines: 200     # cap test output sent on fix retries (0 = unbounded)
-task_preamble_strip: false    # drop content before the first Markdown heading in each task file
-init_instructions: false      # send the summary-format rules once per session instead of per task
+fix_output_max_lines: 120     # cap test output sent on fix retries (0 = unbounded)
+task_preamble_strip: true     # drop content before the first Markdown heading in each task file
+init_instructions: true       # send the summary-format rules once per session instead of per task
 compact_after_n_tasks: 0      # recycle the ACP session every N tasks (0 = never; sends a short handoff)
+compact_at_context_pct: 70    # recycle when agent-reported context fill ≥ N% (0 = off; no-op without usage reports)
 pre_check_tests: false        # run tests before the agent — skip the LLM call when they already pass
 max_tokens_per_run: 0         # estimated-token budget per run; 0 = unlimited (run --dry-run-tokens to size)

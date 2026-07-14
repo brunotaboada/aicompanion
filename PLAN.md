@@ -55,7 +55,7 @@ CLI flags and environment variables (`AICOMPANION_<KEY>`) override the file.
 | `task_sort` | `alphabetical` | Sort: `alphabetical`, `none` |
 | `project_dir` | `.` | Project root passed to the agent session |
 | `test_command` | auto-detect | Shell command to run tests |
-| `verify_commands` | `[]` | Commands run in order after each task; first failure feeds the fix loop (overrides `test_command`) |
+| `verify_commands` | auto-detect / `[]` | Fail-fast ordered checks (lint → typecheck → test); first failure feeds the fix loop (overrides `test_command`). Auto-detects from package.json / Makefile when unset |
 | `test_enabled` | `true` | Run tests after each task |
 | `test_timeout_min` | `30` | Kill the test command after N minutes (0 = no limit) |
 | `stop_on_failure` | `true` | Stop on first test failure |
@@ -66,12 +66,13 @@ CLI flags and environment variables (`AICOMPANION_<KEY>`) override the file.
 | `log_tool_calls` | `true` | Print agent tool calls to console |
 | `log_thoughts` | `false` | Print agent reasoning to console |
 | `yolo` | `true` | Auto-approve agent tool calls (`--yolo` flag) |
-| `fix_output_max_lines` | `200` | Max lines of test output sent to fix-loop prompts |
-| `task_preamble_strip` | `false` | Strip everything before the first `#` heading in task files |
+| `fix_output_max_lines` | `120` | Max lines of test output sent to fix-loop prompts |
+| `task_preamble_strip` | `true` | Strip everything before the first `#` heading in task files |
 | `compact_after_n_tasks` | `0` | Open a fresh ACP session every N tasks (0 = never) |
+| `compact_at_context_pct` | `70` | Open a fresh ACP session when agent-reported context fill ≥ N% (0 = off) |
 | `pre_check_tests` | `false` | Run tests before each task; skip if they already pass |
 | `max_tokens_per_run` | `0` | Stop when estimated token usage exceeds this (0 = unlimited) |
-| `init_instructions` | `false` | Send format rules once per session instead of per task |
+| `init_instructions` | `true` | Send format rules once per session instead of per task |
 
 ## Features directory layout
 

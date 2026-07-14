@@ -38,6 +38,13 @@ public class TaskRunner {
     /** Number of tasks shipped through {@link #currentSessionId}; used by compact logic. */
     private int tasksInCurrentSession = 0;
 
+    /**
+     * Sticky retry flag: set when a compaction handoff fails after the new
+     * session was already opened (context fill / task counter may no longer
+     * trip {@link #shouldCompact()}). Cleared only on a successful handoff.
+     */
+    private boolean compactPending = false;
+
     /** Names of tasks completed since the last compaction — handed off to the next session. */
     private final List<String> recentTaskNames = new ArrayList<>();
 
@@ -132,6 +139,10 @@ public class TaskRunner {
         System.out.println("Features: " + batches.size()
             + "  (" + totalTasks + " task" + (totalTasks == 1 ? "" : "s") + ")");
         System.out.println("Dir     : " + projDir);
+        List<String> verify = config.effectiveVerifyCommands();
+        if (config.testEnabled() && !verify.isEmpty()) {
+            System.out.println("Verify  : " + String.join(" → ", verify));
+        }
         if (config.maxTokensPerRun() > 0) {
             System.out.println("Budget  : " + config.maxTokensPerRun() + " tokens (estimated)");
         }
@@ -413,28 +424,60 @@ public class TaskRunner {
     }
 
     /**
-     * If {@code compact_after_n_tasks} is set and the current session has
-     * processed that many tasks, end it and start a fresh one. A short
-     * "previously completed" handoff is sent so the agent has context without
-     * inheriting the full transcript.
+     * Recycle the ACP session when task-count or context-fill thresholds say
+     * so (or when a previous handoff failed and left {@link #compactPending}).
+     * A short "previously completed" handoff is sent so the new session has
+     * context without inheriting the full transcript.
      */
     private void maybeCompactSession(AcpSyncClient client, Path projDir) {
-        int threshold = config.compactAfterNTasks();
-        if (threshold <= 0 || tasksInCurrentSession < threshold) return;
+        String reason = compactReason();
+        if (reason == null) return;
         try {
             beginSession(client, projDir, /*rollover=*/true, /*resetTaskCounter=*/false);
-            System.out.println(Ansi.dim("[compact] fresh session after "
-                + threshold + " task(s)"));
+            System.out.println(Ansi.dim("[compact] fresh session — " + reason));
             sendPrompt(client, null, Prompts.forCompactHandoff(List.copyOf(recentTaskNames)));
             recentTaskNames.clear();
             tasksInCurrentSession = 0;
+            compactPending = false;
         } catch (RuntimeException e) {
-            // Stay at/above threshold so the handoff is retried on the next task.
-            if (tasksInCurrentSession < threshold) tasksInCurrentSession = threshold;
+            // New session may already be open with empty usage — stick the
+            // retry flag so the next task re-attempts the handoff.
+            compactPending = true;
+            int taskThreshold = config.compactAfterNTasks();
+            if (taskThreshold > 0 && tasksInCurrentSession < taskThreshold) {
+                tasksInCurrentSession = taskThreshold;
+            }
             System.err.println(Ansi.yellow(
                 "Warning: session compaction failed — will retry on the next task. ("
                     + e.getMessage() + ")"));
         }
+    }
+
+    /**
+     * Human-readable reason to compact now, or {@code null} when neither the
+     * task-count threshold, the context-fill threshold, nor a pending retry
+     * applies. Context-fill only fires when the agent reports both used tokens
+     * and window size (see {@link SessionStats#contextAtOrAbove(int)}).
+     */
+    private String compactReason() {
+        if (compactPending) return "retrying failed handoff";
+
+        int taskThreshold = config.compactAfterNTasks();
+        if (taskThreshold > 0 && tasksInCurrentSession >= taskThreshold) {
+            return "after " + taskThreshold + " task(s)";
+        }
+
+        int pctThreshold = config.compactAtContextPct();
+        if (pctThreshold > 0 && stats.contextAtOrAbove(pctThreshold)) {
+            Integer fill = stats.contextFillPercent();
+            return "context " + fill + "% ≥ " + pctThreshold + "%";
+        }
+        return null;
+    }
+
+    /** Visible for tests — whether compaction would fire before the next prompt. */
+    boolean shouldCompact() {
+        return compactReason() != null;
     }
 
     private boolean budgetExceeded() {

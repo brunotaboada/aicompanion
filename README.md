@@ -385,7 +385,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `task_sort` | `alphabetical` | Sort order: `alphabetical` or `none` |
 | `project_dir` | `.` | Project root passed to the agent ACP session |
 | `test_command` | auto-detect | Command to run your tests |
-| `verify_commands` | `[]` | List of commands run in order after each task (lint, typecheck, test, …); the first failure feeds the fix loop. Overrides `test_command` when set |
+| `verify_commands` | auto-detect / `[]` | Commands run in order after each task (put cheap checks first: lint → typecheck → test). First failure feeds the fix loop. Overrides `test_command` when set. When unset, auto-detects a fail-fast pipeline from `package.json` scripts or Makefile targets if lint/typecheck exist |
 | `test_enabled` | `true` | Run tests after each task |
 | `test_timeout_min` | `30` | Kill the test command after N minutes and treat it as a failure (`0` = no limit) |
 | `stop_on_failure` | `true` | Stop the run if tests still fail after `max_fix_attempts` |
@@ -397,12 +397,13 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `log_tool_calls` | `true` | Print `[read]`/`[write]`/`[perm]` events |
 | `log_thoughts` | `false` | Print agent reasoning to console |
 | `yolo` | `true` | Pass `--yolo` to auto-approve agent tool calls |
-| `fix_output_max_lines` | `200` | Max lines of test output shown on failures and sent to fix-loop prompts (head + tail; `0` = unbounded) |
-| `task_preamble_strip` | `false` | Strip everything before the first `#` heading in task files before sending |
+| `fix_output_max_lines` | `120` | Max lines of test output shown on failures and sent to fix-loop prompts (head + tail; `0` = unbounded) |
+| `task_preamble_strip` | `true` | Strip everything before the first `#` heading in task files before sending |
 | `compact_after_n_tasks` | `0` | Open a fresh ACP session every N tasks with a short handoff (`0` = never) |
+| `compact_at_context_pct` | `70` | Open a fresh ACP session when agent-reported context fill reaches N% (`0` = off; no-op if the agent does not report usage size) |
 | `pre_check_tests` | `false` | Run tests before each task; skip the agent call if they already pass |
 | `max_tokens_per_run` | `0` | Stop the run when token usage exceeds this budget (`0` = unlimited) |
-| `init_instructions` | `false` | Send the summary-format rules once per session instead of on every task |
+| `init_instructions` | `true` | Send the summary-format rules once per session instead of on every task |
 
 ### Override priority
 
@@ -473,18 +474,29 @@ test_command: "shell: npm test -- --watchAll=false && ./lint.sh"
 test_command: "shell: $JAVA_HOME/bin/java -jar test-runner.jar"
 ```
 
-**Multiple commands**
+**Multiple commands (fail-fast order)**
 
-Real projects often want lint + typecheck + tests. Set `verify_commands` to run several commands in order after each task:
+Real projects often want lint + typecheck + tests. Set `verify_commands` to run several commands in order after each task — **put the cheapest checks first** so a lint failure never pays for a full test suite:
 
 ```yaml
 verify_commands:
-  - npm run lint
-  - npm run typecheck
+  - npm run lint        # cheap, fail fast
+  - npm run typecheck   # still cheaper than tests
   - "shell: npm test -- --watchAll=false"
 ```
 
 The commands run in order and the first non-zero exit stops the sequence — its output (and the failing command's name) is what the fix loop feeds back to the agent. After each fix attempt the whole sequence runs again from the start, so a lint fix that breaks the tests is still caught. When `verify_commands` is set, `test_command` is ignored. Each entry supports the same `shell:` prefix and quoting rules as `test_command`. (As a CLI flag or env var, pass a comma-separated list: `--verify-commands "npm run lint,npm test"`.)
+
+**Auto-detect**
+
+If `verify_commands` is not set, aicompanion looks for a fail-fast pipeline in the project:
+
+| Marker | Pipeline when cheap checks exist |
+|---|---|
+| `package.json` with `scripts.lint` / `typecheck` (or `type-check`) | `npm run lint` → `npm run typecheck` → `npm test` |
+| `Makefile` with `lint` / `typecheck` targets | `make lint` → `make typecheck` → `make test` |
+
+If only a test script/target exists (no lint/typecheck), auto-detect leaves `verify_commands` empty and the single `test_command` is used instead. Explicit `verify_commands` always win and are never reordered.
 
 **On failure**
 

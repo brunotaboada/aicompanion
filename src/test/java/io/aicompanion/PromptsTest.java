@@ -50,15 +50,15 @@ class PromptsTest {
             java.util.List.of("src/A.java", "src/B.java"));
         assertTrue(fix.contains("src/A.java"));
         assertTrue(fix.contains("src/B.java"));
-        assertTrue(fix.contains("created or modified"));
+        assertTrue(fix.contains("Likely culprits"));
     }
 
     @Test
     void forFixOmitsTouchedFilesSectionWhenEmpty() {
         String fix = Prompts.forFix("mvn test", "boom", 0, java.util.List.of());
-        assertFalse(fix.contains("created or modified"));
+        assertFalse(fix.contains("Likely culprits"));
         String fixNull = Prompts.forFix("mvn test", "boom", 0, null);
-        assertFalse(fixNull.contains("created or modified"));
+        assertFalse(fixNull.contains("Likely culprits"));
     }
 
     @Test
@@ -70,7 +70,7 @@ class PromptsTest {
         assertTrue(section.contains("f" + (Prompts.TOUCHED_FILES_CAP - 1) + ".java"));
         assertFalse(section.contains("f" + (Prompts.TOUCHED_FILES_CAP + 1) + ".java\n"),
             "files past the cap should be elided");
-        assertTrue(section.contains("and 5 more"));
+        assertTrue(section.contains("+5 more"));
     }
 
     @Test
@@ -129,7 +129,7 @@ class PromptsTest {
             java.util.List.of("auth/01-login.md", "auth/02-logout.md"));
         assertTrue(handoff.contains("auth/01-login.md"));
         assertTrue(handoff.contains("auth/02-logout.md"));
-        assertTrue(handoff.toLowerCase().contains("completed"));
+        assertTrue(handoff.toLowerCase().contains("done"));
     }
 
     @Test
@@ -137,5 +137,24 @@ class PromptsTest {
         String handoff = Prompts.forCompactHandoff(java.util.List.of());
         assertNotNull(handoff);
         assertFalse(handoff.isBlank());
+    }
+
+    @Test
+    void forCompactHandoffCapsLongTaskLists() {
+        java.util.List<String> many = new java.util.ArrayList<>();
+        for (int i = 0; i < Prompts.HANDOFF_TASK_CAP + 4; i++) many.add("t" + i);
+        String handoff = Prompts.forCompactHandoff(many);
+        assertFalse(handoff.contains("t0"), "oldest names should be elided");
+        assertTrue(handoff.contains("t" + (Prompts.HANDOFF_TASK_CAP + 3)));
+        assertTrue(handoff.contains("earlier"));
+    }
+
+    @Test
+    void leanTemplatesStayShort() {
+        assertTrue(Prompts.forSessionInit().length() < 160,
+            "session init should stay under ~40 tokens");
+        assertTrue(Prompts.forTaskShort("X").length() < Prompts.forTask("X").length());
+        assertTrue(Prompts.forFixShort("t", "out", 0, java.util.List.of()).length()
+            < Prompts.forFix("t", "out", 0, java.util.List.of()).length());
     }
 }
