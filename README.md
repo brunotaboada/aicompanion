@@ -397,12 +397,13 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `log_tool_calls` | `true` | Print `[read]`/`[write]`/`[perm]` events |
 | `log_thoughts` | `false` | Print agent reasoning to console |
 | `yolo` | `true` | Pass `--yolo` to auto-approve agent tool calls |
-| `fix_output_max_lines` | `200` | Max lines of test output shown on failures and sent to fix-loop prompts (head + tail; `0` = unbounded) |
-| `task_preamble_strip` | `false` | Strip everything before the first `#` heading in task files before sending |
+| `fix_output_max_lines` | `120` | Max lines of test output shown on failures and sent to fix-loop prompts (head + tail; `0` = unbounded) |
+| `task_preamble_strip` | `true` | Strip everything before the first `#` heading in task files before sending |
 | `compact_after_n_tasks` | `0` | Open a fresh ACP session every N tasks with a short handoff (`0` = never) |
+| `compact_at_context_pct` | `70` | Open a fresh ACP session when agent-reported context fill reaches N% (`0` = off; no-op if the agent does not report usage size) |
 | `pre_check_tests` | `false` | Run tests before each task; skip the agent call if they already pass |
 | `max_tokens_per_run` | `0` | Stop the run when token usage exceeds this budget (`0` = unlimited) |
-| `init_instructions` | `false` | Send the summary-format rules once per session instead of on every task |
+| `init_instructions` | `true` | Send the summary-format rules once per session instead of on every task |
 
 ### Override priority
 

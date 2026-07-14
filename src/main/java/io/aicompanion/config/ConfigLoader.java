@@ -44,12 +44,13 @@ public class ConfigLoader {
             resolveBoolean("log_tool_calls",   cliOverrides, file, env, true),
             resolveBoolean("log_thoughts",     cliOverrides, file, env, false),
             resolveBoolean("yolo",             cliOverrides, file, env, true),
-            resolveInt("fix_output_max_lines",     cliOverrides, file, env, 200),
-            resolveBoolean("task_preamble_strip",   cliOverrides, file, env, false),
+            resolveInt("fix_output_max_lines",     cliOverrides, file, env, 120),
+            resolveBoolean("task_preamble_strip",   cliOverrides, file, env, true),
             resolveInt("compact_after_n_tasks",     cliOverrides, file, env, 0),
+            resolveInt("compact_at_context_pct",    cliOverrides, file, env, 70),
             resolveBoolean("pre_check_tests",       cliOverrides, file, env, false),
             resolveInt("max_tokens_per_run",        cliOverrides, file, env, 0),
-            resolveBoolean("init_instructions",     cliOverrides, file, env, false),
+            resolveBoolean("init_instructions",     cliOverrides, file, env, true),
             resolveSkills(file, env)
         );
     }

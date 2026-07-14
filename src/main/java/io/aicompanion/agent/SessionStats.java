@@ -88,6 +88,34 @@ public final class SessionStats {
         return contextSize;
     }
 
+    /** Tokens used in the <em>current</em> ACP session only (not prior compacted ones). */
+    public synchronized long sessionUsedTokens() {
+        return sessionUsedTokens;
+    }
+
+    /**
+     * How full the current context window is, as a percentage of
+     * {@link #contextSize()}, or {@code null} when the agent has not reported
+     * both used-token and window-size figures.
+     */
+    public synchronized Integer contextFillPercent() {
+        if (contextSize == null || contextSize <= 0 || !usageReported) return null;
+        long pct = (sessionUsedTokens * 100L) / contextSize;
+        if (pct > 100) pct = 100;
+        return (int) pct;
+    }
+
+    /**
+     * {@code true} when the agent has reported enough usage to know the
+     * context window is at least {@code pct}% full. {@code pct <= 0} always
+     * returns false (feature disabled).
+     */
+    public synchronized boolean contextAtOrAbove(int pct) {
+        if (pct <= 0) return false;
+        Integer fill = contextFillPercent();
+        return fill != null && fill >= pct;
+    }
+
     /**
      * Fold the current session's reported figures into the run totals and zero
      * the per-session counters — call just before opening a fresh ACP session,

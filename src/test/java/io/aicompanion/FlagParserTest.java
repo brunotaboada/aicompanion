@@ -62,9 +62,11 @@ class FlagParserTest {
     void numericFlags() {
         FlagParser.ParseResult r = FlagParser.parse(
             new String[]{"run", "--max-tokens", "500000", "--compact-after", "5",
+                         "--compact-at-context-pct", "60",
                          "--fix-output-lines", "50"}, 0);
         assertEquals("500000", r.configOverrides().get("max_tokens_per_run"));
         assertEquals("5",      r.configOverrides().get("compact_after_n_tasks"));
+        assertEquals("60",     r.configOverrides().get("compact_at_context_pct"));
         assertEquals("50",     r.configOverrides().get("fix_output_max_lines"));
     }
 
@@ -75,6 +77,14 @@ class FlagParserTest {
         assertEquals("true", r.configOverrides().get("pre_check_tests"));
         assertEquals("true", r.configOverrides().get("init_instructions"));
         assertEquals("true", r.configOverrides().get("task_preamble_strip"));
+    }
+
+    @Test
+    void optOutFlagsDisableLeanDefaults() {
+        FlagParser.ParseResult r = FlagParser.parse(
+            new String[]{"run", "--no-init-instructions", "--no-task-preamble-strip"}, 0);
+        assertEquals("false", r.configOverrides().get("init_instructions"));
+        assertEquals("false", r.configOverrides().get("task_preamble_strip"));
     }
 
     @Test

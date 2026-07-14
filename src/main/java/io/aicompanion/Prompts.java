@@ -10,19 +10,21 @@ final class Prompts {
     private Prompts() {}
 
     /**
-     * Compact one-liner appended to every prompt that needs to repeat the
-     * rules in full. ~25 tokens instead of the multi-line block we used to
-     * ship on every request.
+     * Compact one-liner appended when format rules must be repeated inline.
+     * Kept short — prefer {@link #forSessionInit()} + {@link #SUMMARY_FORMAT_REF}.
      */
     private static final String SUMMARY_FORMAT_COMPACT =
-        "End with 3-5 `- ` bullets (blank line above, no heading, no code, no commentary).";
+        "End with 3-5 `- ` bullets (blank line above; no heading/code/commentary).";
 
     /**
-     * Even shorter back-reference used when {@code init_instructions} is on
-     * and the agent has already received the format rules once per session.
+     * Back-reference used when {@code init_instructions} is on and the agent
+     * already received the format rules once this session.
      */
     private static final String SUMMARY_FORMAT_REF =
-        "End with a summary in the format established earlier.";
+        "End with the established summary format.";
+
+    /** Max task names listed in a compaction handoff (keeps the prompt short). */
+    static final int HANDOFF_TASK_CAP = 8;
 
     /**
      * Sent once per session when {@code init_instructions=true}. The agent
@@ -30,17 +32,15 @@ final class Prompts {
      * re-shipping the rules each time.
      */
     static String forSessionInit() {
-        return "Session rules: every response you produce in this session must "
-            + "end with a concise change summary. Format: blank line, then 3-5 "
-            + "bullet points each on its own line starting with `- `. No heading "
-            + "(no `## Summary`), no code, no commentary after the bullets. "
-            + "Acknowledge with `ok`.";
+        return "Session rule: end every reply with 3-5 `- ` bullets "
+            + "(blank line above; no heading, code, or commentary after). "
+            + "Reply `ok`.";
     }
 
     /** First-attempt prompt with the format rules inline. */
     static String forTask(String taskBody) {
         return taskBody + "\n\n"
-            + "When done, summarise your changes. " + SUMMARY_FORMAT_COMPACT;
+            + "When done, summarise. " + SUMMARY_FORMAT_COMPACT;
     }
 
     /** First-attempt prompt that relies on a prior session-init message. */
@@ -57,12 +57,12 @@ final class Prompts {
      */
     static String forFix(String testCommand, String testOutput, int maxLines,
                          java.util.List<String> touchedFiles) {
-        return "Previous changes broke the tests. `" + testCommand + "` failed:\n\n"
-            + "----- TEST OUTPUT -----\n"
+        return "Tests broke after your last changes. `" + testCommand + "` failed:\n\n"
+            + "----- OUTPUT -----\n"
             + truncateOutput(testOutput, maxLines)
-            + "\n----- END OUTPUT -----\n\n"
+            + "\n----- END -----\n\n"
             + touchedFilesSection(touchedFiles)
-            + "Diagnose and fix without weakening the tests. "
+            + "Fix without weakening tests. "
             + SUMMARY_FORMAT_COMPACT;
     }
 
@@ -70,11 +70,11 @@ final class Prompts {
     static String forFixShort(String testCommand, String testOutput, int maxLines,
                               java.util.List<String> touchedFiles) {
         return "`" + testCommand + "` failed:\n\n"
-            + "----- TEST OUTPUT -----\n"
+            + "----- OUTPUT -----\n"
             + truncateOutput(testOutput, maxLines)
-            + "\n----- END OUTPUT -----\n\n"
+            + "\n----- END -----\n\n"
             + touchedFilesSection(touchedFiles)
-            + "Diagnose and fix without weakening the tests. "
+            + "Fix without weakening tests. "
             + SUMMARY_FORMAT_REF;
     }
 
@@ -87,35 +87,40 @@ final class Prompts {
      */
     static String touchedFilesSection(java.util.List<String> touchedFiles) {
         if (touchedFiles == null || touchedFiles.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder(
-            "Files you created or modified for this task (likely culprits):\n");
+        StringBuilder sb = new StringBuilder("Likely culprits (touched this task):\n");
         int n = Math.min(touchedFiles.size(), TOUCHED_FILES_CAP);
         for (int i = 0; i < n; i++) {
             sb.append("- ").append(touchedFiles.get(i)).append('\n');
         }
         if (touchedFiles.size() > n) {
-            sb.append("- … and ").append(touchedFiles.size() - n).append(" more\n");
+            sb.append("- … +").append(touchedFiles.size() - n).append(" more\n");
         }
         sb.append('\n');
         return sb.toString();
     }
 
     /**
-     * Sent at the start of a fresh session when {@code compact_after_n_tasks}
-     * triggers — a short handoff so the new session knows what is already done
-     * without inheriting the full conversation.
+     * Sent at the start of a fresh session when compaction triggers — a short
+     * handoff so the new session knows what is already done without inheriting
+     * the full conversation. Lists at most {@link #HANDOFF_TASK_CAP} recent
+     * names (oldest elided when the list is longer).
      */
     static String forCompactHandoff(java.util.List<String> completedTaskNames) {
         if (completedTaskNames == null || completedTaskNames.isEmpty()) {
-            return "Starting a fresh session. Continue from the next task.";
+            return "Fresh session. Wait for the next task. Reply `ok`.";
         }
-        StringBuilder sb = new StringBuilder(
-            "Context handoff from prior session. Already completed: ");
-        for (int i = 0; i < completedTaskNames.size(); i++) {
-            if (i > 0) sb.append(", ");
-            sb.append(completedTaskNames.get(i));
+        int size = completedTaskNames.size();
+        int from = Math.max(0, size - HANDOFF_TASK_CAP);
+        StringBuilder sb = new StringBuilder("Handoff. Done");
+        if (from > 0) {
+            sb.append(" (").append(from).append(" earlier + recent)");
         }
-        sb.append(". Acknowledge with `ok` and wait for the next task.");
+        sb.append(':');
+        for (int i = from; i < size; i++) {
+            sb.append(' ').append(completedTaskNames.get(i));
+            if (i < size - 1) sb.append(',');
+        }
+        sb.append(". Reply `ok`; wait for next task.");
         return sb.toString();
     }
 

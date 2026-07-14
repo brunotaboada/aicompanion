@@ -27,6 +27,7 @@ public record Config(
     int          fixOutputMaxLines,
     boolean      taskPreambleStrip,
     int          compactAfterNTasks,
+    int          compactAtContextPct,
     boolean      preCheckTests,
     int          maxTokensPerRun,
     boolean      initInstructions,
@@ -41,6 +42,7 @@ public record Config(
         "reuse_session", "report_dir", "report_enabled", "log_tool_calls",
         "log_thoughts", "yolo",
         "fix_output_max_lines", "task_preamble_strip", "compact_after_n_tasks",
+        "compact_at_context_pct",
         "pre_check_tests", "max_tokens_per_run", "init_instructions"
     );
 

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **Context-fill session compaction** — new `compact_at_context_pct` setting (default `70`, `0` = off; `--compact-at-context-pct` flag). When the agent reports ACP usage with both used tokens and window size, the runner opens a fresh session (with the same short handoff as `compact_after_n_tasks`) once fill reaches the threshold. No-op for agents that do not report usage size. Task-count and context-fill thresholds can be combined; a failed handoff sets a sticky retry flag so compaction is re-attempted on the next task even after usage counters reset
 - **`verify_commands`** — a list of verification commands (lint, typecheck, test, …) run in order after each task; the first non-zero exit stops the sequence and its output plus the failing command's name feed the fix loop. Overrides `test_command` when set; each entry supports the same `shell:` prefix and quoting rules. Available as `verify_commands:` in `.aicompanion.yml`, `--verify-commands "a,b"` on the CLI, and `AICOMPANION_VERIFY_COMMANDS` in the environment
 - **Live status bar** — REPL `run` pins a bottom-row status bar (agent / model / task / tests / fix state) using a DECSTBM scroll region so streamed agent output never collides with it; no-op on dumb/no-TTY terminals. Ported from the `claude/console-ux-improvements-kTU2m` branch onto the current architecture (that branch was cut from a pre-skills snapshot and should be closed unmerged)
 - **Test command timeout** — new `test_timeout_min` setting (`--test-timeout` flag, default 30 minutes, `0` = no limit): the test command is killed (with all its descendants) when it exceeds the limit and the task is treated as failed with the partial output, instead of hanging the run forever
@@ -31,6 +32,8 @@
 - A test-runner I/O error no longer marks the runner thread as interrupted, which could misreport the next task as "aborted by user"; interrupts during a test run now kill the test process tree and report as interrupted
 
 ### Changed
+- **Leaner prompt defaults** — `init_instructions` and `task_preamble_strip` default to `true`; `fix_output_max_lines` default is `120` (was `200`). Opt out with `--no-init-instructions` / `--no-task-preamble-strip` or the matching yaml/`false` values
+- **Shorter agent prompts** — session-init, task, fix, touched-file, and compaction-handoff templates trimmed; handoff lists at most the 8 most recent completed task names
 - `AcpClientFactory` extracted from `TaskRunner` so both autonomous task execution and interactive skill chats share the same read/write/permission handlers
 - `ConfigLoader.load()` overloads now accept an env-var map for testability — production behaviour unchanged
 - `Help.render(skills)` replaces the static `Help.TEXT` for shell/CLI help so the discovered skill commands appear per-project

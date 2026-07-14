@@ -49,6 +49,7 @@ public final class FlagParser {
                 case "--report-dir"          -> { if (i + 1 < tokens.length) overrides.put("report_dir",           tokens[++i]); }
                 case "--max-tokens"          -> { if (i + 1 < tokens.length) overrides.put("max_tokens_per_run",   tokens[++i]); }
                 case "--compact-after"       -> { if (i + 1 < tokens.length) overrides.put("compact_after_n_tasks", tokens[++i]); }
+                case "--compact-at-context-pct" -> { if (i + 1 < tokens.length) overrides.put("compact_at_context_pct", tokens[++i]); }
                 case "--fix-output-lines"    -> { if (i + 1 < tokens.length) overrides.put("fix_output_max_lines", tokens[++i]); }
                 case "--no-tests"            -> overrides.put("test_enabled",      "false");
                 case "--no-stop-on-failure"  -> overrides.put("stop_on_failure",   "false");
@@ -57,7 +58,9 @@ public final class FlagParser {
                 case "--no-reports"          -> overrides.put("report_enabled",    "false");
                 case "--pre-check-tests"     -> overrides.put("pre_check_tests",   "true");
                 case "--init-instructions"   -> overrides.put("init_instructions", "true");
+                case "--no-init-instructions" -> overrides.put("init_instructions", "false");
                 case "--task-preamble-strip" -> overrides.put("task_preamble_strip", "true");
+                case "--no-task-preamble-strip" -> overrides.put("task_preamble_strip", "false");
                 case "--fresh"               -> fresh = true;
                 case "--retry-failed"        -> retryFailed = true;
                 case "--dry-run-tokens"      -> { dryRunTokens = true; nonInteractive = true; }

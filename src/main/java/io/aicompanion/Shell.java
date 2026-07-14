@@ -37,8 +37,10 @@ public class Shell {
         "--verify-commands", "--test-timeout",
         "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
         "--fresh", "--retry-failed",
-        "--pre-check-tests", "--task-preamble-strip", "--init-instructions",
-        "--compact-after", "--fix-output-lines", "--max-tokens", "--dry-run-tokens");
+        "--pre-check-tests", "--task-preamble-strip", "--no-task-preamble-strip",
+        "--init-instructions", "--no-init-instructions",
+        "--compact-after", "--compact-at-context-pct",
+        "--fix-output-lines", "--max-tokens", "--dry-run-tokens");
 
     private static final List<String> SKILL_FLAGS = List.of("--seed", "--model");
 
@@ -501,6 +503,7 @@ public class Shell {
         row("fix_output_max_lines",   String.valueOf(config.fixOutputMaxLines()));
         row("task_preamble_strip",    String.valueOf(config.taskPreambleStrip()));
         row("compact_after_n_tasks",  String.valueOf(config.compactAfterNTasks()));
+        row("compact_at_context_pct", String.valueOf(config.compactAtContextPct()));
         row("pre_check_tests",        String.valueOf(config.preCheckTests()));
         row("max_tokens_per_run",     String.valueOf(config.maxTokensPerRun()));
         row("init_instructions",      String.valueOf(config.initInstructions()));

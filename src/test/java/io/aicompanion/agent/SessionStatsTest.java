@@ -93,4 +93,34 @@ class SessionStatsTest {
         stats.recordUsage(usage(null, 200_000L, null));
         assertFalse(stats.hasReportedUsage());
     }
+
+    @Test
+    void contextFillPercentRequiresUsedAndSize() {
+        var stats = new SessionStats();
+        assertNull(stats.contextFillPercent());
+        stats.recordUsage(usage(70_000L, 100_000L, null));
+        assertEquals(70, stats.contextFillPercent());
+        assertEquals(70_000L, stats.sessionUsedTokens());
+        assertTrue(stats.contextAtOrAbove(70));
+        assertFalse(stats.contextAtOrAbove(71));
+        assertFalse(stats.contextAtOrAbove(0));
+    }
+
+    @Test
+    void contextFillCapsAt100() {
+        var stats = new SessionStats();
+        stats.recordUsage(usage(150_000L, 100_000L, null));
+        assertEquals(100, stats.contextFillPercent());
+    }
+
+    @Test
+    void rolloverClearsSessionFill() {
+        var stats = new SessionStats();
+        stats.recordUsage(usage(80_000L, 100_000L, null));
+        assertEquals(80, stats.contextFillPercent());
+        stats.rolloverSession();
+        assertNull(stats.contextFillPercent());
+        assertEquals(0, stats.sessionUsedTokens());
+        assertEquals(80_000L, stats.totalUsedTokens());
+    }
 }

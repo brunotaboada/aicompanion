@@ -61,10 +61,13 @@ public final class Help {
 
             Token-saving (for `run`):
               --pre-check-tests         Run tests before each task; skip agent if green
-              --task-preamble-strip     Drop content before the first Markdown heading
-              --init-instructions       Send summary-format rules once per session
+              --task-preamble-strip     Drop content before the first Markdown heading (default on)
+              --no-task-preamble-strip  Keep full task file content
+              --init-instructions       Send summary-format rules once per session (default on)
+              --no-init-instructions    Repeat summary rules on every prompt
               --compact-after <N>       Recycle ACP session every N tasks
-              --fix-output-lines <N>    Cap retry test output (default: 200; 0 = unbounded)
+              --compact-at-context-pct <N>  Recycle when agent-reported context fill ≥ N% (default: 70; 0 = off)
+              --fix-output-lines <N>    Cap retry test output (default: 120; 0 = unbounded)
               --max-tokens <N>          Stop the run once estimated tokens cross N
               --dry-run-tokens          Estimate prompt tokens without invoking the agent
 
@@ -130,7 +133,9 @@ public final class Help {
               --timeout <min>              --test-timeout <min>       --no-tests
               --no-stop-on-failure         --log-thoughts             --no-yolo
               --fresh                      --retry-failed             --pre-check-tests
-              --task-preamble-strip        --init-instructions        --compact-after <N>
+              --task-preamble-strip / --no-task-preamble-strip
+              --init-instructions / --no-init-instructions
+              --compact-after <N>          --compact-at-context-pct <N>
               --fix-output-lines <N>       --max-tokens <N>
 
             REPL keys:  Tab=complete  Ctrl+R=history  Ctrl+C=abort  Ctrl+D=quit""" + skillSection;
