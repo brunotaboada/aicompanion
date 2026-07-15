@@ -1,14 +1,15 @@
-"""Train the tiny GPT on sample sentences."""
+"""Train the tiny GPT once and save weights for inference."""
 
 from __future__ import annotations
 
 import argparse
-
-import numpy as np
+from pathlib import Path
 
 from tiny_llm.data import training_sentences
 from tiny_llm.model import TinyGPT, TinyGPTConfig, pad_batch
 from tiny_llm.vocab import detokenize, tokenize
+
+DEFAULT_WEIGHTS = Path(__file__).resolve().parent / "weights.npz"
 
 
 def train(epochs: int = 400, seed: int = 42) -> TinyGPT:
@@ -39,8 +40,13 @@ def demo(model: TinyGPT) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train and demo the tiny GPT")
+    parser = argparse.ArgumentParser(description="Train the tiny GPT and save weights")
     parser.add_argument("--epochs", type=int, default=400)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--out", type=Path, default=DEFAULT_WEIGHTS)
     args = parser.parse_args()
-    demo(train(epochs=args.epochs, seed=args.seed))
+
+    model = train(epochs=args.epochs, seed=args.seed)
+    model.save(args.out)
+    print(f"\nsaved weights -> {args.out}")
+    demo(model)

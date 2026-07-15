@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from .layers import (
@@ -13,6 +15,23 @@ from .layers import (
     softmax,
 )
 from .vocab import END_ID, PAD_ID, VOCAB_SIZE
+
+WEIGHT_KEYS = (
+    "embeddings",
+    "ln1_gamma",
+    "ln1_beta",
+    "ln2_gamma",
+    "ln2_beta",
+    "w_q",
+    "w_k",
+    "w_v",
+    "w_o",
+    "ff_w1",
+    "ff_b1",
+    "ff_w2",
+    "ff_b2",
+    "lm_head",
+)
 
 
 class TinyGPTConfig:
@@ -172,6 +191,32 @@ class TinyGPT:
             if next_id == END_ID:
                 break
         return ids
+
+    def save(self, path: str | Path) -> None:
+        path = Path(path)
+        payload = {key: getattr(self, key) for key in WEIGHT_KEYS}
+        payload["config"] = np.array(
+            [self.config.vocab_size, self.config.d_model, self.config.n_heads, self.config.max_seq_len],
+            dtype=np.int64,
+        )
+        np.savez_compressed(path, **payload)
+
+    @classmethod
+    def load(cls, path: str | Path) -> TinyGPT:
+        data = np.load(path)
+        vocab_size, d_model, n_heads, max_seq_len = (int(x) for x in data["config"])
+        model = cls(
+            TinyGPTConfig(
+                vocab_size=vocab_size,
+                d_model=d_model,
+                n_heads=n_heads,
+                max_seq_len=max_seq_len,
+            )
+        )
+        for key in WEIGHT_KEYS:
+            setattr(model, key, data[key])
+        model.pos_encoding = positional_encoding(model.config.max_seq_len, model.config.d_model)
+        return model
 
 
 def pad_batch(sequences: list[list[int]], pad_id: int = PAD_ID) -> np.ndarray:
