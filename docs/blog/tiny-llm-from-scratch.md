@@ -4,7 +4,7 @@ ChatGPT feels like magic until it doesn't. It hallucinates, repeats itself, or i
 
 They're not. Under the hood, every LLM is **next-word prediction in a loop** — tokenize, embed, attend, predict, repeat.
 
-This post walks through a **tiny GPT with only 20 words**, in pure NumPy. We'll use one sentence throughout — `"the cat sat"` — so every example builds on the last.
+This post walks through a **tiny GPT with only 20 words**, in pure NumPy. We'll start with one tiny sentence — `"the cat sat"` — and gradually expand to a small vocabulary so each example builds on the last.
 
 > **Runnable code:** `examples/tiny-llm/`  
 > `pip install -r requirements.txt && python3 train.py`
@@ -51,7 +51,7 @@ An ID like `1` doesn't carry meaning. An **embedding** is a short list of number
 ```python
 import numpy as np
 
-# Each word → 3 numbers (real models use hundreds)
+# Each word → 3 numbers (real models use hundreds or thousands)
 embeddings = {
     "the": [0.1, 0.0, 0.0],
     "cat": [0.0, 0.8, 0.2],
@@ -71,7 +71,7 @@ After training, similar words get similar numbers. `"cat"` and `"dog"` end up cl
 
 ## Step 3: Guess the Next Word
 
-Multiply the last word's vector by a weight matrix. You get a score for each word in the vocabulary. Pick the highest (or sample from the scores).
+Multiply the last word's vector by a weight matrix. You get a score for each word in the vocabulary. Pick the highest score, or sample from the scores if you want more variety.
 
 ```python
 def softmax(scores):
@@ -90,7 +90,7 @@ probs = softmax(scores)
 
 ## Step 4: Mix in Context With Attention
 
-Instead of using just the last word, **combine all the words** — but not equally. `"cat"` should matter more than `"the"`.
+Instead of using just the last word, **combine all the words** — but not equally. `"cat"` should matter more than `"the"` when the model is deciding what comes next.
 
 ```python
 # Hand-picked weights for "the cat sat" → predict next word
@@ -101,7 +101,7 @@ context = (
     0.7 * embeddings["cat"] +
     0.2 * embeddings["sat"]
 )
-# context ≈ mostly "cat" → good guess for what comes next
+# context ≈ mostly "cat" → a better clue for what comes next
 ```
 
 Attention **learns** these weights automatically. Each word asks "who is relevant to me?" and gets an answer via dot products:
@@ -118,7 +118,7 @@ weights = softmax(np.array([score_the, score_cat]))
 context = weights[0] * the + weights[1] * cat
 ```
 
-For `"the cat sat on the"`, the model learns to weight `"big"` and `"cat"` heavily and ignore `"red"`. That's how it picks `"big mat"` over `"small house"`.
+For a prompt like `"the cat sat on the"`, the useful clues are `"cat"`, `"sat"`, and `"on"`; the repeated `"the"` tokens carry less meaning. Attention gives the model a way to learn that difference instead of treating every word equally.
 
 ---
 
@@ -129,16 +129,16 @@ Real models add a few helpers around attention:
 ```python
 x = embeddings_for_sentence
 
-x = x + attention(x)    # mix in context, keep original info
-x = layer_norm(x)       # keep numbers in a sane range
-scores = x[-1] @ lm_head  # last word → guess next word
+x = x + attention(x)      # mix in context, keep original info
+x = layer_norm(x)         # keep numbers in a sane range
+scores = x[-1] @ lm_head  # last position → guess next word
 ```
 
 - `x + attention(x)` — a **residual connection**; don't throw away the original
 - `layer_norm` — stops numbers from growing out of control
 - `x[-1]` — use the **last position** to predict the next word
 
-GPT-4 stacks dozens of these blocks. Ours uses one. Same pattern, bigger scale.
+Large language models stack many of these blocks. Ours uses one. Same pattern, bigger scale.
 
 ---
 
@@ -182,14 +182,14 @@ python3 train.py          # train + generate
 
 ---
 
-## Tiny GPT vs GPT-4
+## Tiny GPT vs Frontier LLMs
 
-| | This post | GPT-4 |
+| | This post | Frontier LLMs |
 |--|--|--|
-| Words | 20 | ~100,000 |
-| Numbers per word | 64 | thousands |
-| Layers | 1 | 120+ |
-| Training | seconds on CPU | months on GPUs |
+| Vocabulary | 20 words | very large tokenizer vocabularies |
+| Numbers per token | 64 | hundreds or thousands |
+| Transformer blocks | 1 | many stacked blocks |
+| Training | seconds on CPU | large-scale GPU training |
 
 Same idea. Different scale.
 
