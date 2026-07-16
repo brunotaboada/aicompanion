@@ -1,14 +1,12 @@
 """
 Tiny GPT — inference only.
 
-Computational graph (per decoding step):
-  token ids
-    → token embedding + positional embedding     (lookup)
-    → causal self-attention + residual           (context mixing)
-    → LM head                                    (vocab logits)
-    → argmax                                     (greedy next token)
+For each new word we:
+  1. look up embeddings (meaning + position)
+  2. let words share context with attention
+  3. score every vocab word and pick the best one
 
-Parameters live in weights.npz (trained offline). This file never updates them.
+weights.npz was trained ahead of time. This file only reads it.
 """
 
 from __future__ import annotations
@@ -18,11 +16,9 @@ from pathlib import Path
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Vocabulary
-# ---------------------------------------------------------------------------
-# Closed world of 20 tokens. Unknown words raise KeyError on purpose —
-# a production tokenizer would fall back to subword pieces / <unk>.
+# ---- vocabulary -----------------------------------------------------------
+# Tiny closed world. If you type an unknown word, it fails on purpose.
+# Real models would split unknown words into subword pieces.
 VOCAB = [
     "the", "cat", "dog", "sat", "ran", "on", "mat", "house", "a",
     "big", "small", "quickly", "slowly", "and", "is", "red", "blue", "to",
@@ -30,105 +26,99 @@ VOCAB = [
 ]
 WORD_TO_ID = {w: i for i, w in enumerate(VOCAB)}
 ID_TO_WORD = {i: w for i, w in enumerate(VOCAB)}
-END = WORD_TO_ID["END"]  # stop token for the decoding loop
+END = WORD_TO_ID["END"]  # stop signal
 
 
-def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
-    """Numerically stable softmax → categorical distribution along `axis`."""
-    x = x - np.max(x, axis=axis, keepdims=True)  # prevents exp overflow
-    exp = np.exp(x)
-    return exp / np.sum(exp, axis=axis, keepdims=True)
+def softmax(x):
+    """Turn raw scores into probabilities that add to 1."""
+    # Subtract max first so exp() doesn't blow up on large numbers.
+    x = x - x.max(axis=-1, keepdims=True)
+    e = np.exp(x)
+    return e / e.sum(axis=-1, keepdims=True)
 
 
-def attention(x: np.ndarray, Wq: np.ndarray, Wk: np.ndarray, Wv: np.ndarray) -> np.ndarray:
+def attention(x, Wq, Wk, Wv):
     """
-    Single-head causal self-attention.
+    Single-head attention.
 
-    Args:
-        x:  (n, d) hidden states for the current prefix
-        Wq, Wk, Wv: (d, d) projection matrices learned during training
-
-    Returns:
-        (n, d) context vectors — each row is a weighted mix of values
-        from positions ≤ that row (causality enforced by the mask).
+    x shape: (n_words, d)
+    Returns one new vector per word, each mixed from earlier words.
     """
-    # Linear projections: same x, three different learned views.
-    Q = x @ Wq  # (n, d) — "what am I searching for?"
-    K = x @ Wk  # (n, d) — "how do I present myself to searchers?"
-    V = x @ Wv  # (n, d) — "what content do I contribute if selected?"
+    # Same input, three learned views of it.
+    Q = x @ Wq  # "what am I looking for?"
+    K = x @ Wk  # "how should others find me?"
+    V = x @ Wv  # "what do I contribute if selected?"
 
-    d = x.shape[1]
-    n = x.shape[0]
+    n, d = x.shape
 
-    # Compatibility scores. Divide by sqrt(d) so dot products don't grow
-    # with dimension and push softmax into saturated (near one-hot) regimes.
-    scores = (Q @ K.T) / np.sqrt(d)  # (n, n)
+    # Compare every query to every key → relevance scores.
+    # / sqrt(d) keeps scores from getting huge as d grows.
+    scores = (Q @ K.T) / np.sqrt(d)
 
-    # Causal mask: position i may attend to j only if j <= i.
-    # Setting future scores to a large negative makes softmax ≈ 0 there.
-    causal = np.triu(np.full((n, n), -1e9), k=1)
-    weights = softmax(scores + causal, axis=-1)  # (n, n), rows sum to 1
+    # Block the future: word i cannot look at words after i.
+    # Big negative numbers become ~0 after softmax.
+    future = np.triu(np.full((n, n), -1e9), k=1)
+    weights = softmax(scores + future)  # each row = "how much I attend to each word"
 
-    # Mix values with the attention weights.
-    return weights @ V  # (n, d)
+    # Mix the values using those weights.
+    # Example: weights [0.1, 0.7, 0.2] → mostly the 2nd word's value.
+    return weights @ V
 
 
 class TinyGPT:
     """
     Minimal decoder:
-      Embed(tokens, positions) → Attention → residual → LM head
+      embed → attend → predict next word
 
-    Weight file keys:
-      emb  (V, d)   token embedding table
-      pos  (L, d)   positional embedding table
-      Wq, Wk, Wv (d, d)  attention projections
-      head (d, V)   vocabulary projection (ties the model to next-token prediction)
+    weights.npz contains:
+      emb  — meaning vector for each vocab word
+      pos  — position vector for each index in the sentence
+      Wq, Wk, Wv — attention projection matrices
+      head — final "score every vocab word" matrix
     """
 
-    def __init__(self, weights: dict):
+    def __init__(self, weights):
         self.w = weights
 
     @classmethod
-    def load(cls, path: str | Path) -> TinyGPT:
-        """Deserialize a trained checkpoint. Inference never writes back."""
+    def load(cls, path):
+        """Load a trained checkpoint. We never update weights here."""
         return cls(dict(np.load(path)))
 
-    def forward(self, ids: np.ndarray) -> np.ndarray:
+    def forward(self, ids):
         """
-        Full forward pass for a token prefix.
+        One forward pass over the current sentence so far.
 
-        Args:
-            ids: (n,) int token ids
-        Returns:
-            logits: (n, V) — row t is P(next token | ids[:t+1]) before softmax
+        ids:    [0, 1, 3]           # "the cat sat"
+        return: scores for each vocab word at each position
         """
         w = self.w
         n = len(ids)
 
-        # 1. Representation: token identity + absolute position.
-        #    Without `pos`, attention cannot distinguish order.
-        x = w["emb"][ids] + w["pos"][:n]  # (n, d)
+        # 1) Meaning + position for every word.
+        #    emb[ids] picks rows from the embedding table.
+        x = w["emb"][ids] + w["pos"][:n]
 
-        # 2. Context mixing. Residual connection (x + attn) preserves the
-        #    original embedding while allowing attention to add refinements —
-        #    the same pattern used inside Transformer blocks at scale.
+        # 2) Share context. Residual "x +" keeps the original signal
+        #    and lets attention add useful extras on top.
         x = x + attention(x, w["Wq"], w["Wk"], w["Wv"])
 
-        # 3. Language-model head: hidden state → score for every vocab entry.
-        #    We read logits[-1] at generation time (predict given the full prefix).
-        return x @ w["head"]  # (n, V)
+        # 3) Turn each position into scores over the full vocabulary.
+        #    At generation time we only need the last row (next word).
+        return x @ w["head"]
 
-    def generate(self, prompt: str, max_new: int = 8) -> str:
+    def generate(self, prompt, max_new=8):
         """
-        Greedy autoregressive decoding.
+        Keep guessing the next word until END (or max_new guesses).
 
-        At each step we condition on the growing prefix, take argmax over the
-        final position's logits, and stop on END (or max_new tokens).
+        Example:
+          prompt "the cat and the"
+          → "the cat and the dog END"
         """
-        ids = [WORD_TO_ID[token] for token in prompt.lower().split()]
+        ids = [WORD_TO_ID[w] for w in prompt.lower().split()]
         for _ in range(max_new):
-            logits = self.forward(np.asarray(ids, dtype=np.int64))
-            next_id = int(logits[-1].argmax())  # greedy ≡ temperature → 0
+            scores = self.forward(np.array(ids))
+            next_id = int(scores[-1].argmax())  # greedy: pick the top score
             ids.append(next_id)
             if next_id == END:
                 break
@@ -136,7 +126,7 @@ class TinyGPT:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run tiny GPT inference")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--weights", default=str(Path(__file__).with_name("weights.npz")))
     parser.add_argument("--prompt", default="the cat and the")
     args = parser.parse_args()
