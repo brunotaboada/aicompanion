@@ -1,42 +1,30 @@
 # Tiny LLM — NumPy from scratch
 
-A minimal GPT-style language model with a 20-word vocabulary. Companion to [`docs/blog/tiny-llm-from-scratch.md`](../../docs/blog/tiny-llm-from-scratch.md).
+Minimal GPT: **embed → single-head attention → predict**. Companion to [`docs/blog/tiny-llm-from-scratch.md`](../../docs/blog/tiny-llm-from-scratch.md).
 
 ## Quick start (inference)
-
-Weights are already trained and saved in `weights.npz`:
 
 ```bash
 cd examples/tiny-llm
 pip install -r requirements.txt
 python3 tiny_llm_inference.py
-# or:
-python3 infer.py --prompt "the cat and the"
 ```
 
 ## Retrain (optional)
 
 ```bash
-python3 train.py --epochs 400 --out weights.npz
+python3 train.py --epochs 800 --out weights.npz
 ```
 
-## What it includes
+## Files
 
 | File | Purpose |
 |------|---------|
-| `weights.npz` | pretrained weights (ready for inference) |
-| `tiny_llm_inference.py` | self-contained inference script (blog version) |
-| `infer.py` | thin wrapper using the `tiny_llm` package |
-| `train.py` | train once and save weights |
-| `tiny_llm/` | package: vocab, layers, model with save/load |
-| `step_by_step.py` | tiny building-block demos |
-
-## Architecture
-
-- Token embeddings + sinusoidal positional encoding
-- 1 transformer block: multi-head attention (4 heads) → layer norm → residual → FFN → layer norm → residual
-- LM head → next-token prediction
-- Causal masking (no peeking at future tokens)
+| `weights.npz` | pretrained weights |
+| `tiny_llm_inference.py` | self-contained inference (~70 lines) |
+| `train.py` | train once, save weights |
+| `infer.py` | package-based inference |
+| `step_by_step.py` | tiny concept demos |
 
 ## Expected output
 
@@ -46,8 +34,3 @@ python3 train.py --epochs 400 --out weights.npz
 'the red big cat sat on the' -> the red big cat sat on the big mat END
 'the small dog ran to the small' -> the small dog ran to the small house END
 ```
-
-## Requirements
-
-- Python 3.10+
-- NumPy
