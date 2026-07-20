@@ -21,6 +21,10 @@ after each task, and continues until all tasks across all features are complete.
 
 # Estimate token cost before running
 ./aicompanion run --dry-run-tokens
+
+# Resume controls
+./aicompanion run --fresh              # wipe state, run all tasks
+./aicompanion run --retry-failed       # re-run previously failed tasks
 ```
 
 ## Interactive commands
@@ -70,8 +74,41 @@ CLI flags and environment variables (`AICOMPANION_<KEY>`) override the file.
 | `task_preamble_strip` | `false` | Strip everything before the first `#` heading in task files |
 | `compact_after_n_tasks` | `0` | Open a fresh ACP session every N tasks (0 = never) |
 | `pre_check_tests` | `false` | Run tests before each task; skip if they already pass |
-| `max_tokens_per_run` | `0` | Stop when estimated token usage exceeds this (0 = unlimited) |
+| `max_tokens_per_run` | `0` | Stop when token usage exceeds this (0 = unlimited). Uses agent-reported ACP usage when available, else ~4 chars/token estimate |
 | `init_instructions` | `false` | Send format rules once per session instead of per task |
+| `reuse_session` | `true` | Keep one ACP session across tasks; `false` opens a fresh session per task |
+
+## Resume state
+
+Persistent resume data lives in `.aicompanion/state.yml`. Each task entry stores
+`status` (`passed` / `failed`), a SHA-256 `hash` of the task file, and a timestamp.
+Skip logic: hash must match **and** status is passed, or failed without `--retry-failed`.
+Edited tasks (hash mismatch) always re-run.
+
+- `RunState.save()` writes atomically (temp file + rename).
+- `RunStateLock` acquires `.aicompanion/state.lock` at run start; a second
+  concurrent `run` fails fast. Remove the lock file if a process died mid-run.
+- Changing `features_dir` invalidates stored entries.
+- REPL: `status` shows labels; `reset` deletes state (with confirmation).
+
+## Token budgeting
+
+- `--dry-run-tokens` — estimate per-task prompt tokens; no agent, no run lock, no tests.
+- `max_tokens_per_run` / `--max-tokens` — stop when budget exceeded.
+- Agent-reported usage (when streamed via ACP) overrides the char/4 estimator
+  for summaries and budget checks.
+
+## Interactive UX
+
+During REPL `run` on a capable TTY, `StatusBar` pins agent/model/task/fix state
+on the bottom row using a DECSTBM scroll region. No-op on dumb/no-TTY terminals.
+
+Session compaction (`compact_after_n_tasks`) opens a fresh ACP session every N
+tasks with a short handoff. Handoff failures retry on the next task (counter
+stays at threshold).
+
+Fix-loop prompts include files the agent touched (ACP writes + edit/delete/move
+tool calls) as likely culprits.
 
 ## Features directory layout
 
@@ -148,6 +185,7 @@ Main → Shell (interactive REPL) or TaskRunner (one-shot --run)
              → TestVerifier.run()
              → fix-loop up to maxFixAttempts
          - RunState persisted after each task for resume support
+         - RunStateLock held for the duration of the run
 
      SkillRunner (interactive, per-feature)
        - ChatLoop drives back-and-forth until /done or /abort
@@ -157,7 +195,9 @@ Main → Shell (interactive REPL) or TaskRunner (one-shot --run)
 Key classes:
 - `BatchResolver` — scans `features_dir`, returns `List<Batch>` sorted by feature name
 - `RunState` — SHA-256-based resume: skips tasks whose content hasn't changed
+- `RunStateLock` — exclusive file lock (`.aicompanion/state.lock`) for concurrent-run safety
 - `AgentConsole` — streaming gutter renderer, spinner, space-bar output toggle
+- `StatusBar` — bottom-row REPL status during `run` (TTY only)
 - `AgentRegistry` — detects installed agents; `findModel`/`modelLabel` for model resolution
 - `Config` — record of all settings; `Config.KEYS` is the authoritative key list
 
