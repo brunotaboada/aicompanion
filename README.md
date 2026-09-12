@@ -392,7 +392,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `max_fix_attempts` | `3` | On test failure, feed the output back to the agent and retry up to N times (`0` disables auto-fix) |
 | `session_timeout_min` | `10` | ACP session timeout per task (minutes) |
 | `reuse_session` | `true` | Keep one ACP session across all tasks; `false` opens a fresh session for every task |
-| `report_dir` | `.aicompanion/logs` | Directory for per-task Markdown logs |
+| `report_dir` | `.aicompanion/logs` | Directory for per-task Markdown logs (relative to `project_dir`) |
 | `report_enabled` | `true` | Write a `.md` summary log per task |
 | `log_tool_calls` | `true` | Print `[read]`/`[write]`/`[perm]` events |
 | `log_thoughts` | `false` | Print agent reasoning to console |
@@ -401,7 +401,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `task_preamble_strip` | `false` | Strip everything before the first `#` heading in task files before sending |
 | `compact_after_n_tasks` | `0` | Open a fresh ACP session every N tasks with a short handoff (`0` = never) |
 | `pre_check_tests` | `false` | Run tests before each task; skip the agent call if they already pass |
-| `max_tokens_per_run` | `0` | Stop the run when token usage exceeds this budget (`0` = unlimited) |
+| `max_tokens_per_run` | `0` | Stop the run when token usage exceeds this budget (`0` = unlimited). Checked before each task and each fix attempt; uses agent-reported usage when available, else ~4 chars/token |
 | `init_instructions` | `false` | Send the summary-format rules once per session instead of on every task |
 
 ### Override priority
@@ -488,7 +488,7 @@ The commands run in order and the first non-zero exit stops the sequence — its
 
 **On failure**
 
-When tests fail, aicompanion feeds the output back to the agent and retries up to `max_fix_attempts` times (default `3`). If tests still fail after all retries and `stop_on_failure` is `true`, the run stops. The task is recorded as `FAILED` in `.aicompanion/state.yml`.
+When tests fail, aicompanion feeds the output back to the agent and retries up to `max_fix_attempts` times (default `3`). If tests still fail after all retries and `stop_on_failure` is `true`, the run stops. The task is recorded as `FAILED` in `<project_dir>/.aicompanion/state.yml`.
 
 On the next `run`, failed tasks are skipped by default. Use `--retry-failed` to re-run them, or `--fresh` to wipe all state and start over.
 

@@ -74,25 +74,47 @@ public class ConfigLoader {
         return "true".equalsIgnoreCase(val) || "1".equals(val) || "yes".equalsIgnoreCase(val);
     }
 
+    /**
+     * @throws IllegalArgumentException when the value is not an integer —
+     *         silently falling back to the default turned {@code --max-tokens 50k}
+     *         into "no budget" and {@code --timeout 5m} into ten minutes
+     */
     private static int resolveInt(String key, Map<String, String> cli,
                                    Map<String, Object> file,
                                    Map<String, String> env, int def) {
         String val = resolve(key, cli, file, env, null);
         if (val == null) return def;
-        try { return Integer.parseInt(val); } catch (NumberFormatException e) { return def; }
+        try {
+            return Integer.parseInt(val.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                "Invalid value for " + key + ": '" + val + "' (expected an integer)");
+        }
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * CLI and env values are comma-separated; YAML may use a list or a string.
+     * Entries are trimmed and blanks dropped, so {@code "md, txt"} matches
+     * {@code .txt} files instead of looking for a {@code " txt"} extension.
+     */
     private static List<String> resolveList(String key, Map<String, String> cli,
                                              Map<String, Object> file,
                                              Map<String, String> env, List<String> def) {
-        if (cli != null && cli.containsKey(key)) return Arrays.asList(cli.get(key).split(","));
+        if (cli != null && cli.containsKey(key)) return splitList(cli.get(key));
         String envVal = env.get("AICOMPANION_" + key.toUpperCase());
-        if (envVal != null && !envVal.isBlank()) return Arrays.asList(envVal.split(","));
+        if (envVal != null && !envVal.isBlank()) return splitList(envVal);
         Object val = file.get(key);
-        if (val instanceof List<?> list) return (List<String>) list;
-        if (val instanceof String s) return Arrays.asList(s.split(","));
+        if (val instanceof List<?> list) {
+            return list.stream()
+                .map(String::valueOf).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        }
+        if (val instanceof String s) return splitList(s);
         return def;
+    }
+
+    private static List<String> splitList(String csv) {
+        return Arrays.stream(csv.split(","))
+            .map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
     /**

@@ -56,16 +56,19 @@ public final class Help {
               --log-thoughts            Print agent reasoning to console
               --no-yolo                 Do not pass --yolo to the agent
               --no-reports              Do not write markdown logs
-              --fresh                   Clear .aicompanion/state.yml; run all tasks
+              --fresh                   Clear <project>/.aicompanion/state.yml; run all tasks
               --retry-failed            Resume but re-run previously failed tasks
 
             Token-saving (for `run`):
               --pre-check-tests         Run tests before each task; skip agent if green
               --task-preamble-strip     Drop content before the first Markdown heading
               --init-instructions       Send summary-format rules once per session
+              --no-pre-check-tests, --no-task-preamble-strip, --no-init-instructions
+                                        Turn the above off when enabled in .aicompanion.yml
               --compact-after <N>       Recycle ACP session every N tasks
               --fix-output-lines <N>    Cap retry test output (default: 200; 0 = unbounded)
-              --max-tokens <N>          Stop the run once estimated tokens cross N
+              --max-tokens <N>          Stop the run once tokens used cross N
+                                        (agent-reported usage when available, else estimated)
               --dry-run-tokens          Estimate prompt tokens without invoking the agent
 
             Configuration precedence (low → high):
@@ -127,11 +130,13 @@ public final class Help {
             Run flags (Tab in the REPL completes them):
               --features <dir>             --project <dir>            --agent <id>
               --model <name>               --test-command <cmd>       --verify-commands <list>
-              --timeout <min>              --test-timeout <min>       --no-tests
-              --no-stop-on-failure         --log-thoughts             --no-yolo
-              --fresh                      --retry-failed             --pre-check-tests
-              --task-preamble-strip        --init-instructions        --compact-after <N>
-              --fix-output-lines <N>       --max-tokens <N>
+              --timeout <min>              --test-timeout <min>       --report-dir <dir>
+              --no-tests                   --no-stop-on-failure       --no-reports
+              --log-thoughts               --no-yolo                  --fresh
+              --retry-failed               --pre-check-tests          --no-pre-check-tests
+              --task-preamble-strip        --no-task-preamble-strip   --init-instructions
+              --no-init-instructions       --compact-after <N>        --fix-output-lines <N>
+              --max-tokens <N>             --dry-run-tokens
 
             REPL keys:  Tab=complete  Ctrl+R=history  Ctrl+C=abort  Ctrl+D=quit""" + skillSection;
     }

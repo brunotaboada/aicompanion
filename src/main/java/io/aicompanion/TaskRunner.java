@@ -92,7 +92,7 @@ public class TaskRunner {
             return RunResult.success();
         }
 
-        try (RunStateLock ignored = RunStateLock.acquire()) {
+        try (RunStateLock ignored = RunStateLock.acquire(RunStateLock.pathFor(config.projectDir()))) {
             return runLocked(batches, totalTasks);
         }
     }
@@ -106,10 +106,11 @@ public class TaskRunner {
                                               config.testTimeoutMin());
         var       reporter = new Reporter(config);
 
+        Path statePath = RunState.pathFor(config.projectDir());
         if (runOptions.fresh()) {
-            try { RunState.delete(); } catch (IOException ignore) {}
+            try { RunState.delete(statePath); } catch (IOException ignore) {}
         }
-        RunState state = RunState.load();
+        RunState state = RunState.load(statePath);
         if (state.loadWarning() != null) {
             System.out.println(Ansi.yellow(state.loadWarning()));
         }
@@ -133,7 +134,8 @@ public class TaskRunner {
             + "  (" + totalTasks + " task" + (totalTasks == 1 ? "" : "s") + ")");
         System.out.println("Dir     : " + projDir);
         if (config.maxTokensPerRun() > 0) {
-            System.out.println("Budget  : " + config.maxTokensPerRun() + " tokens (estimated)");
+            System.out.println("Budget  : " + config.maxTokensPerRun()
+                + " tokens (agent-reported usage when available, else ~4 chars/token)");
         }
         System.out.println();
 
@@ -222,6 +224,18 @@ public class TaskRunner {
 
             status.setTask(globalIdx, totalTasks, displayName);
             status.clearFix();
+
+            // The budget is also checked inside the fix loop, so a task that
+            // overshot while being repaired stops the run here rather than
+            // after one more full task.
+            if (budgetExceeded()) {
+                System.out.println(Ansi.yellow(
+                    "Stopping — token budget exceeded ("
+                        + tokensUsedForBudget() + " / "
+                        + config.maxTokensPerRun() + ")."));
+                printTokenSummary();
+                return false;
+            }
 
             if (state.shouldSkip(stateKey, taskHash, runOptions.retryFailed())) {
                 status.setTestsSkipped();
@@ -334,6 +348,12 @@ public class TaskRunner {
         TestVerifier.Result result = runTestsWithSpinner(verifier, "Running tests");
         int attempt = 0;
         while (!result.passed() && attempt < config.maxFixAttempts()) {
+            if (budgetExceeded()) {
+                System.out.println(Ansi.yellow(
+                    "Token budget exceeded — not attempting another fix ("
+                        + tokensUsedForBudget() + " / " + config.maxTokensPerRun() + ")."));
+                break;
+            }
             attempt++;
             status.setTestsFail();
             status.setFix(attempt, config.maxFixAttempts());
@@ -369,7 +389,7 @@ public class TaskRunner {
         } else {
             status.setTestsFail();
             System.out.printf("%s Tests still FAILED after %d fix attempt(s)%n",
-                Ansi.red("✗"), config.maxFixAttempts());
+                Ansi.red("✗"), attempt);
             System.out.println(Prompts.truncateOutput(result.output(), config.fixOutputMaxLines()));
             state.markFailed(stateKey, taskHash);
             tasksFailedThisRun++;
@@ -662,7 +682,15 @@ public class TaskRunner {
             System.out.println("[model] using " + AgentRegistry.modelLabel(match) + " (already active)");
             return;
         }
-        client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
+        try {
+            client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
+        } catch (RuntimeException e) {
+            // Not every agent supports switching; keep the run alive on its default.
+            System.out.println(Ansi.yellow("[model] agent refused switch to "
+                + AgentRegistry.modelLabel(match) + " — staying on default ("
+                + e.getMessage() + ")"));
+            return;
+        }
         status.setModel(AgentRegistry.modelLabel(match));
         System.out.println("[model] switched to " + AgentRegistry.modelLabel(match));
     }

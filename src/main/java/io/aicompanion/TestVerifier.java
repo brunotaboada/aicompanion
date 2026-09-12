@@ -76,6 +76,10 @@ public class TestVerifier {
             pb.directory(projectDir.toFile());
             pb.redirectErrorStream(true);
             proc = pb.start();
+            // Close the child's stdin right away: a runner that reads it (watch
+            // mode, an interactive prompt) would otherwise block on the open
+            // pipe until the timeout instead of seeing EOF and finishing.
+            try { proc.getOutputStream().close(); } catch (IOException ignored) {}
 
             // Drain stdout on a separate thread so waitFor can time out even
             // while the child is still producing output — readAllBytes on this
