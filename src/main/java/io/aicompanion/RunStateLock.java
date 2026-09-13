@@ -11,7 +11,8 @@ import java.nio.file.*;
  */
 public final class RunStateLock implements AutoCloseable {
 
-    private static final Path LOCK_PATH =
+    /** Lock file next to the default state file, relative to the working directory. */
+    public static final Path DEFAULT_PATH =
         RunState.DEFAULT_PATH.getParent().resolve("state.lock");
 
     private final FileChannel channel;
@@ -22,18 +23,28 @@ public final class RunStateLock implements AutoCloseable {
         this.lock    = lock;
     }
 
+    /** Lock file for a project — sibling of {@link RunState#pathFor(String)}. */
+    public static Path pathFor(String projectDir) {
+        return RunState.pathFor(projectDir).resolveSibling("state.lock");
+    }
+
     public static RunStateLock acquire() throws IOException {
-        if (LOCK_PATH.getParent() != null) {
-            Files.createDirectories(LOCK_PATH.getParent());
+        return acquire(DEFAULT_PATH);
+    }
+
+    public static RunStateLock acquire(Path lockPath) throws IOException {
+        if (lockPath.getParent() != null) {
+            Files.createDirectories(lockPath.getParent());
         }
-        FileChannel ch = FileChannel.open(LOCK_PATH,
+        FileChannel ch = FileChannel.open(lockPath,
             StandardOpenOption.CREATE, StandardOpenOption.WRITE);
         FileLock fileLock = ch.tryLock();
         if (fileLock == null) {
             ch.close();
             throw new IllegalStateException(
-                "Another aicompanion run is in progress (lock: " + LOCK_PATH + "). "
-                    + "Wait for it to finish or remove the lock file if the process died.");
+                "Another aicompanion run is in progress (lock: " + lockPath + "). "
+                    + "Wait for it to finish. (The lock is released automatically when "
+                    + "that process exits — deleting the file does not help.)");
         }
         return new RunStateLock(ch, fileLock);
     }

@@ -22,6 +22,22 @@
 - Three canonical skill bundles under `.agents/skills/` (PRD, TechSpec, tasks) with reference templates (PRD, TechSpec, ADR, question-protocol, task, task-context-schema)
 
 ### Fixed
+- Headless `aicompanion run` now prints a one-line error and exits (code 2 for bad input, 1 for agent/ACP failures) instead of dumping a stack trace when the features directory is missing or the agent fails
+- Non-integer values for numeric settings (`--max-tokens 50k`, `--timeout 5m`, or the same keys in `.aicompanion.yml` / env) are rejected with a clear message; previously they silently fell back to the default, which turned a typo'd budget into "unlimited"
+- Unknown `run` flags, stray positional arguments, and value-taking flags with no value are rejected instead of ignored, so `run --feature foo` no longer silently runs against the default directory
+- Permission auto-approval prefers `ALLOW_ALWAYS`, then `ALLOW_ONCE`, and never falls back to the first option the agent lists (which could be a reject)
+- The test command's stdin is closed at start, so runners that read stdin (watch mode, interactive prompts) see EOF instead of hanging until the timeout
+- Agent file writes via ACP are confined to `project_dir` and `features_dir`; reads remain unrestricted
+- Resume state, the run lock, and a relative `report_dir` now live under `project_dir` rather than the working directory, so runs against the same project from different directories share one state file and one lock
+- The token budget is checked before each task and before each fix attempt, not only after a task completes; the startup banner no longer labels the budget "estimated" when the agent reports exact usage
+- `--fresh` / `--retry-failed` passed on the CLI when opening the REPL apply to the first `run` only, instead of wiping state on every run in that session
+- List settings (`task_extensions`, `verify_commands`, `agent_extra_args`) trim entries and drop blanks, so `task_extensions: "md, txt"` matches `.txt` files
+- An agent that refuses `--model` switching no longer aborts the run or skill; it logs a warning and continues on the agent's default model
+- The "tests still FAILED after N fix attempt(s)" line reports the number of attempts actually made
+- CLI skill commands (`aicompanion create-prd <feature>`) discover skills under `project_dir`, matching the REPL
+- `config set` rejects unknown keys and invalid values instead of storing them
+- REPL tab completion covers `--timeout`, `--report-dir`, `--no-reports`, and the new `--no-init-instructions`, `--no-task-preamble-strip`, `--no-pre-check-tests` flags
+- The concurrent-run lock message no longer advises deleting the lock file (the OS releases it when the holder exits)
 - `reuse_session` is now honoured: `reuse_session: false` opens a fresh ACP session for every task. Previously the key was documented and displayed but had no effect (landed via #17; kept here as the release-level record)
 - Failing test output printed to the console is now truncated with the same head+tail rule as fix-loop prompts (`fix_output_max_lines`), so a chatty test suite no longer floods the terminal
 - `test_command` without the `shell:` prefix now respects single and double quotes when splitting into arguments, so commands like `mvn test -Dtest="Foo Bar"` work; previously the command was split on whitespace only

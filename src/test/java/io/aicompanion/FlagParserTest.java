@@ -86,10 +86,33 @@ class FlagParserTest {
     }
 
     @Test
-    void unknownFlagsAreIgnored() {
-        FlagParser.ParseResult r = FlagParser.parse(new String[]{"--unknown-flag", "value"}, 0);
-        assertTrue(r.configOverrides().isEmpty());
-        assertFalse(r.nonInteractive());
+    void unknownFlagsAreRejected() {
+        var e = assertThrows(IllegalArgumentException.class,
+            () -> FlagParser.parse(new String[]{"--unknown-flag", "value"}, 0));
+        assertTrue(e.getMessage().contains("--unknown-flag"));
+    }
+
+    @Test
+    void strayPositionalIsRejected() {
+        var e = assertThrows(IllegalArgumentException.class,
+            () -> FlagParser.parse(new String[]{"run", "extra"}, 0));
+        assertTrue(e.getMessage().contains("extra"));
+    }
+
+    @Test
+    void flagMissingValueIsRejected() {
+        var e = assertThrows(IllegalArgumentException.class,
+            () -> FlagParser.parse(new String[]{"run", "--features"}, 0));
+        assertTrue(e.getMessage().contains("--features"));
+    }
+
+    @Test
+    void negativeTokenSavingFlags() {
+        FlagParser.ParseResult r = FlagParser.parse(new String[]{
+            "run", "--no-init-instructions", "--no-task-preamble-strip", "--no-pre-check-tests"}, 0);
+        assertEquals("false", r.configOverrides().get("init_instructions"));
+        assertEquals("false", r.configOverrides().get("task_preamble_strip"));
+        assertEquals("false", r.configOverrides().get("pre_check_tests"));
     }
 
     @Test
@@ -100,12 +123,5 @@ class FlagParserTest {
         assertFalse(r.runOptions().fresh());
         assertFalse(r.runOptions().retryFailed());
         assertFalse(r.runOptions().dryRunTokens());
-    }
-
-    @Test
-    void flagWithMissingValueIsSkipped() {
-        // --features at end of args — no following value token
-        FlagParser.ParseResult r = FlagParser.parse(new String[]{"run", "--features"}, 0);
-        assertFalse(r.configOverrides().containsKey("features_dir"));
     }
 }

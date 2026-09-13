@@ -28,6 +28,15 @@ class TestVerifierTest {
     }
 
     @Test
+    @Timeout(10)
+    @DisabledOnOs(OS.WINDOWS)
+    void commandReadingStdinSeesEofInsteadOfHanging() {
+        // `cat` blocks forever on an open stdin pipe; with stdin closed it exits at once.
+        var result = new TestVerifier("shell: cat", CWD).run();
+        assertTrue(result.passed());
+    }
+
+    @Test
     @DisabledOnOs(OS.WINDOWS)
     void failingCommandReportsFailed() {
         var result = new TestVerifier("shell: exit 3", CWD).run();

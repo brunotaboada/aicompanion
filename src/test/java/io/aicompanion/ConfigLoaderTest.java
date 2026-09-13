@@ -66,6 +66,20 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void taskExtensionsAreTrimmed() {
+        Config cfg = ConfigLoader.load(Map.of("task_extensions", "md, txt"), Map.of());
+        assertEquals(List.of("md", "txt"), cfg.taskExtensions());
+    }
+
+    @Test
+    void invalidIntegerIsRejectedNotDefaulted() {
+        var e = assertThrows(IllegalArgumentException.class,
+            () -> ConfigLoader.load(Map.of("max_tokens_per_run", "50k"), Map.of()));
+        assertTrue(e.getMessage().contains("max_tokens_per_run"));
+        assertTrue(e.getMessage().contains("50k"));
+    }
+
+    @Test
     void effectiveVerifyCommandsEmptyWhenNothingConfigured() {
         Config cfg = ConfigLoader.load(Map.of("test_command", ""), Map.of());
         assertTrue(cfg.effectiveVerifyCommands().isEmpty());

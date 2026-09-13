@@ -30,7 +30,9 @@ public class Reporter {
             String featurePart = slash >= 0 ? taskName.substring(0, slash) : "";
             String leaf        = slash >= 0 ? taskName.substring(slash + 1) : taskName;
 
-            Path dir = Path.of(config.reportDir());
+            // Relative report_dir lives under project_dir, alongside the state file.
+            Path dir = Path.of(config.projectDir()).toAbsolutePath().normalize()
+                .resolve(config.reportDir());
             if (!featurePart.isEmpty()) dir = dir.resolve(slug(featurePart));
             Files.createDirectories(dir);
 

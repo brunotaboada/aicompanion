@@ -109,7 +109,7 @@ public final class AcpClientFactory {
                 if (config.logToolCalls()) console.logEvent(Ansi.dim("[write] " + req.path()
                     + " (" + req.content().length() + " chars)"));
                 try {
-                    Path p = Path.of(req.path());
+                    Path p = checkWritable(config, req.path());
                     if (p.getParent() != null) Files.createDirectories(p.getParent());
                     Files.writeString(p, req.content());
                     stats.recordTouched(req.path());
@@ -130,18 +130,48 @@ public final class AcpClientFactory {
                         "[perm ] agent sent no permission options — cannot auto-approve"));
                     return new RequestPermissionResponse(new PermissionCancelled());
                 }
-                String chosen = opts.stream()
-                    .filter(o -> o.kind() != null
-                        && o.kind().name().contains("ALLOW_ALWAYS"))
-                    .map(PermissionOption::optionId)
-                    .findFirst()
-                    .orElse(opts.isEmpty() ? null : opts.get(0).optionId());
-                return chosen != null
-                    ? new RequestPermissionResponse(new PermissionSelected(chosen))
-                    : new RequestPermissionResponse(new PermissionCancelled());
+                String chosen = chooseAllowOption(opts);
+                if (chosen == null) {
+                    console.logEvent(Ansi.yellow(
+                        "[perm ] agent offered no allow option — cancelling: " + tool));
+                    return new RequestPermissionResponse(new PermissionCancelled());
+                }
+                return new RequestPermissionResponse(new PermissionSelected(chosen));
             })
 
             .build();
+    }
+
+    /**
+     * Pick the option to auto-approve with: {@code ALLOW_ALWAYS}, else
+     * {@code ALLOW_ONCE}, else any other allow-ish kind. Never falls back to
+     * "the first option" — agents may list a reject option first, and
+     * auto-selecting it would silently deny every tool call.
+     */
+    static String chooseAllowOption(List<PermissionOption> opts) {
+        for (String want : List.of("ALLOW_ALWAYS", "ALLOW_ONCE", "ALLOW")) {
+            for (PermissionOption o : opts) {
+                if (o.kind() != null && o.kind().name().contains(want)) return o.optionId();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Writes are confined to {@code project_dir} and {@code features_dir}: the
+     * agent's task and skill outputs live there, and a stray absolute path in
+     * a tool call must not clobber files elsewhere on disk. Reads stay
+     * unrestricted — agents legitimately consult files outside the project
+     * (toolchain config, shared libraries) and reading is low-risk.
+     */
+    static Path checkWritable(Config config, String requested) {
+        Path p = Path.of(requested).toAbsolutePath().normalize();
+        for (String rootStr : List.of(config.projectDir(), config.featuresDir())) {
+            Path root = Path.of(rootStr).toAbsolutePath().normalize();
+            if (p.startsWith(root)) return p;
+        }
+        throw new IllegalArgumentException("Refusing to write outside project_dir/features_dir: "
+            + requested);
     }
 
     /** Track file paths from mutating tool calls so fix prompts can name them. */

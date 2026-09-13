@@ -34,10 +34,11 @@ public class Shell {
 
     private static final List<String> RUN_FLAGS = List.of(
         "--features", "--agent", "--model", "--project", "--test-command",
-        "--verify-commands", "--test-timeout",
-        "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo",
+        "--verify-commands", "--timeout", "--test-timeout", "--report-dir",
+        "--no-tests", "--no-stop-on-failure", "--log-thoughts", "--no-yolo", "--no-reports",
         "--fresh", "--retry-failed",
         "--pre-check-tests", "--task-preamble-strip", "--init-instructions",
+        "--no-pre-check-tests", "--no-task-preamble-strip", "--no-init-instructions",
         "--compact-after", "--fix-output-lines", "--max-tokens", "--dry-run-tokens");
 
     private static final List<String> SKILL_FLAGS = List.of("--seed", "--model");
@@ -50,7 +51,12 @@ public class Shell {
     /** Accumulated `config set` overrides — survives across multiple set commands. */
     private final Map<String, String> runtimeOverrides = new LinkedHashMap<>();
 
-    private final RunOptions defaultRunOptions;
+    /**
+     * Run options given on the CLI when the shell was launched (e.g.
+     * {@code aicompanion --fresh}). Applied to the first {@code run} only:
+     * wiping state on every subsequent run would be a nasty surprise.
+     */
+    private RunOptions pendingRunOptions;
 
     public Shell(Config config) {
         this(config, RunOptions.defaults());
@@ -58,7 +64,7 @@ public class Shell {
 
     public Shell(Config config, RunOptions defaultRunOptions) {
         this.config = config;
-        this.defaultRunOptions = defaultRunOptions;
+        this.pendingRunOptions = defaultRunOptions;
     }
 
     public void start() throws Exception {
@@ -161,11 +167,19 @@ public class Shell {
     // ── command handlers ─────────────────────────────────────────────────────
 
     private void handleRun(String[] parts, Terminal terminal) {
-        FlagParser.ParseResult parsed = FlagParser.parse(parts, 1);
-        Map<String, String> merged = new LinkedHashMap<>(runtimeOverrides);
-        merged.putAll(parsed.configOverrides());
-        Config effective = ConfigLoader.load(merged);
-        RunOptions opts = mergeRunOptions(parsed.runOptions(), defaultRunOptions);
+        Config     effective;
+        RunOptions opts;
+        try {
+            FlagParser.ParseResult parsed = FlagParser.parse(parts, 1);
+            Map<String, String> merged = new LinkedHashMap<>(runtimeOverrides);
+            merged.putAll(parsed.configOverrides());
+            effective = ConfigLoader.load(merged);
+            opts = mergeRunOptions(parsed.runOptions(), pendingRunOptions);
+        } catch (IllegalArgumentException e) {
+            System.out.println(Ansi.yellow(msg(e)));
+            return;
+        }
+        pendingRunOptions = RunOptions.defaults();
 
         // Pin a status bar at the bottom of the screen for the duration of
         // the run, then route Ctrl+C to a thread interrupt so the runner can
@@ -393,7 +407,7 @@ public class Shell {
                     "No features with tasks found under: " + config.featuresDir()));
                 return;
             }
-            RunState state = RunState.load();
+            RunState state = RunState.load(RunState.pathFor(config.projectDir()));
             System.out.println("Features in " + Ansi.cyan(config.featuresDir())
                 + " (" + batches.size() + " features, " + total + " tasks):");
             int n = 0;
@@ -425,7 +439,7 @@ public class Shell {
     }
 
     private void handleReset(LineReader reader) {
-        Path stateFile = RunState.DEFAULT_PATH;
+        Path stateFile = RunState.pathFor(config.projectDir());
         if (!Files.exists(stateFile)) {
             System.out.println(Ansi.dim("No state file at " + stateFile + " — nothing to reset."));
             return;
@@ -442,7 +456,7 @@ public class Shell {
             return;
         }
         try {
-            RunState.delete();
+            RunState.delete(stateFile);
             System.out.println(Ansi.green("✓ Cleared resume state."));
         } catch (IOException e) {
             System.err.println(Ansi.red("Could not delete state file: " + e.getMessage()));
@@ -467,8 +481,20 @@ public class Shell {
         } else if (parts.length >= 4 && "set".equals(parts[1])) {
             String key = parts[2];
             String val = String.join(" ", Arrays.copyOfRange(parts, 3, parts.length));
-            runtimeOverrides.put(key, val);
-            config = ConfigLoader.load(runtimeOverrides);
+            if (!Config.KEYS.contains(key)) {
+                System.out.println(Ansi.yellow("Unknown config key: " + key
+                    + ". Tab completes the valid keys."));
+                return;
+            }
+            try {
+                Map<String, String> trial = new LinkedHashMap<>(runtimeOverrides);
+                trial.put(key, val);
+                config = ConfigLoader.load(trial);
+                runtimeOverrides.put(key, val);
+            } catch (IllegalArgumentException e) {
+                System.out.println(Ansi.yellow(msg(e)));
+                return;
+            }
             System.out.println(Ansi.green("Set ") + key + " = " + val);
         } else {
             System.out.println("Usage: config  |  config set <key> <value>");

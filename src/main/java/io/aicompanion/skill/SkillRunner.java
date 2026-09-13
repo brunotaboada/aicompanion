@@ -185,7 +185,13 @@ public final class SkillRunner {
             System.out.println(Ansi.dim("[model] using " + match.modelId() + " (already active)"));
             return;
         }
-        client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
+        try {
+            client.setSessionModel(new SetSessionModelRequest(sessionId, match.modelId()));
+        } catch (RuntimeException e) {
+            System.out.println(Ansi.yellow("[model] agent refused switch to " + match.modelId()
+                + " — staying on default (" + e.getMessage() + ")"));
+            return;
+        }
         System.out.println(Ansi.dim("[model] switched to " + match.modelId()));
     }
 }

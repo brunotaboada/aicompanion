@@ -20,6 +20,16 @@ public class RunState {
 
     public static final Path DEFAULT_PATH = Path.of(".aicompanion", "state.yml");
 
+    /**
+     * State file for a project: {@code <project_dir>/.aicompanion/state.yml}.
+     * Keyed on the project rather than the working directory so two runs
+     * against the same project from different directories share one state
+     * file and one lock.
+     */
+    public static Path pathFor(String projectDir) {
+        return Path.of(projectDir).toAbsolutePath().normalize().resolve(DEFAULT_PATH);
+    }
+
     public enum Status { PASSED, FAILED }
 
     public record TaskState(Status status, String hash, String at) {}

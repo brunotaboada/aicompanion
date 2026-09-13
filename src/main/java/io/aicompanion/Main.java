@@ -40,10 +40,10 @@ public class Main {
             return;
         }
 
-        FlagParser.ParseResult parsed = FlagParser.parse(args, 0);
-
+        FlagParser.ParseResult parsed;
         Config config;
         try {
+            parsed = FlagParser.parse(args, 0);
             config = ConfigLoader.load(parsed.configOverrides());
         } catch (IllegalArgumentException e) {
             System.err.println("aicompanion: " + msg(e));
@@ -60,6 +60,14 @@ public class Main {
                 System.exit(1);
             } catch (IOException e) {
                 System.err.println("aicompanion: I/O error — " + msg(e));
+                System.exit(1);
+            } catch (IllegalArgumentException e) {
+                // Bad input the runner detected late (e.g. features dir missing).
+                System.err.println("aicompanion: " + msg(e));
+                System.exit(2);
+            } catch (RuntimeException e) {
+                // Agent / ACP failures — a one-line message, not a stack trace.
+                System.err.println("aicompanion: " + msg(e));
                 System.exit(1);
             }
         } else {
@@ -91,8 +99,21 @@ public class Main {
         return false;
     }
 
+    /**
+     * Discover skills under the configured {@code project_dir} — the same root
+     * the REPL and {@link SkillRunner} use — so {@code aicompanion create-prd x}
+     * is recognised even when the project lives elsewhere. Falls back to the
+     * working directory when the config file itself cannot be loaded; the
+     * error surfaces later on the normal path.
+     */
     private static List<SkillMetadata> discoverSkillsQuietly() {
-        return discoverSkillsQuietly(Path.of(".").resolve(SkillRunner.SKILLS_ROOT));
+        Path root;
+        try {
+            root = SkillRunner.skillsRoot(ConfigLoader.load(java.util.Map.of()));
+        } catch (IllegalArgumentException e) {
+            root = Path.of(".").resolve(SkillRunner.SKILLS_ROOT);
+        }
+        return discoverSkillsQuietly(root);
     }
 
     private static List<SkillMetadata> discoverSkillsQuietly(Path skillsRoot) {
