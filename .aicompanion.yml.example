@@ -55,4 +55,4 @@ task_preamble_strip: false    # drop content before the first Markdown heading i
 init_instructions: false      # send the summary-format rules once per session instead of per task
 compact_after_n_tasks: 0      # recycle the ACP session every N tasks (0 = never; sends a short handoff)
 pre_check_tests: false        # run tests before the agent — skip the LLM call when they already pass
-max_tokens_per_run: 0         # estimated-token budget per run; 0 = unlimited (run --dry-run-tokens to size)
+max_tokens_per_run: 0         # token budget per run; 0 = unlimited (agent-reported usage when available, else ~4 chars/token; run --dry-run-tokens to size)
