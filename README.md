@@ -492,6 +492,32 @@ When tests fail, aicompanion feeds the output back to the agent and retries up t
 
 On the next `run`, failed tasks are skipped by default. Use `--retry-failed` to re-run them, or `--fresh` to wipe all state and start over.
 
+### Resume and run state
+
+Between runs, progress is stored in `.aicompanion/state.yml` (gitignored by default — add it to `.gitignore` if you use resume in a repo). Each task is keyed by its path under `features_dir` (for example `user-model/task_01.md`) with:
+
+| Field | Meaning |
+|---|---|
+| `status` | `passed` or `failed` from the last attempt |
+| `hash` | SHA-256 of the task file contents at that attempt |
+| `at` | ISO timestamp of when the status was recorded |
+
+On the next `run`, a task is **skipped** when the stored hash still matches the file on disk and either it previously **passed**, or it **failed** and you did not pass `--retry-failed`. If you edit a task file, the hash changes and the task runs again even if it passed before (`status` shows `edited`).
+
+Resume entries are tied to `features_dir`. If you change that setting, stored task entries are cleared so you do not resume against the wrong feature tree.
+
+State is written atomically (temp file + rename). If the file is missing or unreadable, aicompanion starts with empty resume state and prints a warning — it does not abort the run.
+
+**Exclusive lock:** only one `run` may hold the lock for a project at a time (`.aicompanion/state.lock`). A second concurrent `run` exits immediately with *Another aicompanion run is in progress*. Wait for the first run to finish. If a process crashed without releasing the lock, delete `state.lock` only when no `aicompanion` process is still running for that project.
+
+Clear resume state with `reset` in the REPL, `./aicompanion run --fresh`, or by deleting `.aicompanion/state.yml`.
+
+### Token budget and dry run
+
+`max_tokens_per_run` stops the run once estimated or agent-reported token usage crosses the budget (`0` = unlimited). Use `./aicompanion run --dry-run-tokens` to walk feature discovery and prompt construction **without** launching an agent — useful for sizing prompts and checking resume/skip logic in CI or when no agent is installed.
+
+When `compact_after_n_tasks` is set, the runner opens a fresh ACP session every N tasks and sends a short handoff listing completed task names. If that handoff prompt fails, compaction is retried on the next task instead of silently continuing with a stale session.
+
 ---
 
 ## Interactive Shell Commands
@@ -499,6 +525,8 @@ On the next `run`, failed tasks are skipped by default. Use `--retry-failed` to 
 ```
 aicompanion> run [--features <dir>] [--agent <id>] [--project <dir>]
                  [--no-tests] [--no-stop-on-failure] [--log-thoughts]
+                 [--fresh] [--retry-failed] [--dry-run-tokens]
+                 [--verify-commands <list>] [--compact-after <N>]
 
 aicompanion> tasks                      List features and their tasks
 aicompanion> agents                     List installed AI agents
@@ -518,6 +546,8 @@ aicompanion> help                       Show help (includes per-project skill li
 aicompanion> exit                       Exit
 ```
 
+During `run` in a real TTY, a live status bar stays pinned on the last row (agent, model, current task, test/fix state) while agent output scrolls above it. On dumb terminals or piped output it is disabled automatically.
+
 Runtime config changes take effect immediately:
 
 ```
@@ -535,6 +565,12 @@ aicompanion> run
 ./aicompanion run
       │
       ▼
+RunStateLock.acquire()   exclusive lock (.aicompanion/state.lock)
+      │
+      ▼
+RunState.load()          resume map from .aicompanion/state.yml (content hashes)
+      │
+      ▼
 AgentRegistry          detect installed agents (PATH scan)
       │ AgentSpec
       ▼
@@ -543,7 +579,8 @@ StdioAcpClientTransport   launch agent as subprocess (ACP Java SDK 0.10.0)
       ▼
 AcpSyncClient
   .initialize()          ACP handshake + declare FileSystemCapability(read, write)
-  .newSession(cwd)       open session on project root
+  .newSession(cwd)       open session on project root (refreshed on reuse_session=false
+      │                  or compact_after_n_tasks handoff)
       │
       ▼  for each task file (lazy — read one at a time):
   .prompt(content + summary instruction)
@@ -556,7 +593,10 @@ AcpSyncClient
   stream AgentMessageChunk to console + summaryBuf
       │
       ▼
-  TestVerifier.run()     execute test_command, check exit code
+  TestVerifier.run()     verify_commands (in order) or test_command; timeout + fix loop
+      │
+      ▼
+  RunState.save()        atomic update of state.yml
       │
       ▼
   Reporter.write()       .aicompanion/logs/<task>-<timestamp>.md
@@ -580,8 +620,12 @@ aicompanion/
 │   ├── Shell.java                 JLine3 interactive REPL + skill discovery
 │   ├── Help.java                  Help text (static + dynamic skill section)
 │   ├── TaskRunner.java            ACP session + lazy task execution loop
-│   ├── TestVerifier.java          Runs test command, captures output
+│   ├── RunState.java              Resume map (pass/fail + content hashes)
+│   ├── RunStateLock.java          Exclusive lock for concurrent run safety
+│   ├── TestVerifier.java          Runs verify_commands / test_command, captures output
 │   ├── Reporter.java              Writes per-task Markdown summary logs
+│   ├── console/
+│   │   └── StatusBar.java         REPL bottom-row run status (DECSTBM scroll region)
 │   ├── agent/
 │   │   ├── AgentSpec.java         Agent definitions (id, binary, params builder)
 │   │   ├── AgentRegistry.java     Agent detection and resolution
