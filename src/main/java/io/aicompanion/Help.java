@@ -69,7 +69,7 @@ public final class Help {
               --dry-run-tokens          Estimate prompt tokens without invoking the agent
 
             Configuration precedence (low → high):
-              AICOMPANION_<KEY> env var  →  .aicompanion.yml  →  --flag
+              .aicompanion.yml  →  AICOMPANION_<KEY> env var  →  --flag
 
             For commands inside the REPL, run `aicompanion` then type `help`.
             See README.md for full configuration reference.""" + skillSection;
