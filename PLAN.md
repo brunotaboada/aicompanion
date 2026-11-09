@@ -61,6 +61,7 @@ CLI flags and environment variables (`AICOMPANION_<KEY>`) override the file.
 | `stop_on_failure` | `true` | Stop on first test failure |
 | `max_fix_attempts` | `3` | Fix-loop retries per task |
 | `session_timeout_min` | `10` | ACP session timeout per task (minutes) |
+| `reuse_session` | `true` | Keep one ACP session across tasks; `false` opens a fresh session per task |
 | `report_dir` | `.aicompanion/logs` | Directory for per-task markdown logs |
 | `report_enabled` | `true` | Write markdown log per task |
 | `log_tool_calls` | `true` | Print agent tool calls to console |
@@ -148,6 +149,7 @@ Main → Shell (interactive REPL) or TaskRunner (one-shot --run)
              → TestVerifier.run()
              → fix-loop up to maxFixAttempts
          - RunState persisted after each task for resume support
+         - RunStateLock held for the duration of the run
 
      SkillRunner (interactive, per-feature)
        - ChatLoop drives back-and-forth until /done or /abort
@@ -157,7 +159,9 @@ Main → Shell (interactive REPL) or TaskRunner (one-shot --run)
 Key classes:
 - `BatchResolver` — scans `features_dir`, returns `List<Batch>` sorted by feature name
 - `RunState` — SHA-256-based resume: skips tasks whose content hasn't changed
+- `RunStateLock` — exclusive file lock (`.aicompanion/state.lock`) for concurrent-run safety
 - `AgentConsole` — streaming gutter renderer, spinner, space-bar output toggle
+- `StatusBar` — bottom-row REPL status during `run` (TTY only)
 - `AgentRegistry` — detects installed agents; `findModel`/`modelLabel` for model resolution
 - `Config` — record of all settings; `Config.KEYS` is the authoritative key list
 
