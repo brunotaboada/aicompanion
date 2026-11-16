@@ -19,8 +19,11 @@ after each task, and continues until all tasks across all features are complete.
 # With a specific agent
 ./aicompanion run --agent gemini --features features
 
-# Estimate token cost before running
+# Estimate token cost before running (no agent, no tests)
 ./aicompanion run --dry-run-tokens
+
+# Re-run only tasks that failed last time
+./aicompanion run --retry-failed
 ```
 
 ## Interactive commands
@@ -61,6 +64,7 @@ CLI flags and environment variables (`AICOMPANION_<KEY>`) override the file.
 | `stop_on_failure` | `true` | Stop on first test failure |
 | `max_fix_attempts` | `3` | Fix-loop retries per task |
 | `session_timeout_min` | `10` | ACP session timeout per task (minutes) |
+| `reuse_session` | `true` | One ACP session for all tasks (`false` = new session per task) |
 | `report_dir` | `.aicompanion/logs` | Directory for per-task markdown logs |
 | `report_enabled` | `true` | Write markdown log per task |
 | `log_tool_calls` | `true` | Print agent tool calls to console |
@@ -131,23 +135,34 @@ The agent runs with full permissions:
 - `requestPermissionHandler`: auto-selects ALLOW_ALWAYS for any remaining prompts
 - `ClientCapabilities(FileSystemCapability(read=true, write=true))`
 
+## Resume and locking
+
+- State file: `.aicompanion/state.yml` (per-task `passed`/`failed`, content hash, timestamp).
+- Skip passed tasks; skip failed unless `--retry-failed`; re-run when task file hash changes.
+- `features_dir` in state must match current config or entries are cleared.
+- `RunStateLock` — `.aicompanion/state.lock`; second concurrent `run` fails fast.
+- `reset` / `run --fresh` delete resume state.
+
 ## Architecture
 
 ```
-Main → Shell (interactive REPL) or TaskRunner (one-shot --run)
+Main → Shell (interactive REPL + StatusBar) or TaskRunner (one-shot run)
          ↓
      TaskRunner
+       - RunStateLock.acquire()
+       - RunState.load() / shouldSkip() / save()
+       - optional --dry-run-tokens → TokenEstimator only
        - BatchResolver.resolveBatches()   (one Batch per feature with tasks/)
        - for each Batch:
            for each task path (sorted):
              Files.readString(path)        (lazy — one file at a time)
-             + summary instruction appended to prompt
-             → AcpSyncClient.prompt()
-             → stream AgentMessageChunk to console + summaryBuf
+             → AcpSyncClient.prompt() + fix-loop (touched files + test output)
+             → AgentConsole stream + SessionStats (usage, touched paths)
+             → TestVerifier.run()          test_command or verify_commands[]
              → Reporter.write()
-             → TestVerifier.run()
-             → fix-loop up to maxFixAttempts
-         - RunState persisted after each task for resume support
+             → RunState.markPassed/Failed + save
+         - compact_after_n_tasks → newSession() with handoff prompt
+         - max_tokens_per_run → stop when budget exceeded
 
      SkillRunner (interactive, per-feature)
        - ChatLoop drives back-and-forth until /done or /abort
@@ -156,8 +171,10 @@ Main → Shell (interactive REPL) or TaskRunner (one-shot --run)
 
 Key classes:
 - `BatchResolver` — scans `features_dir`, returns `List<Batch>` sorted by feature name
-- `RunState` — SHA-256-based resume: skips tasks whose content hasn't changed
+- `RunState` / `RunStateLock` — resume hashes and exclusive run lock
+- `StatusBar` — REPL bottom row (agent / model / task / tests / fix); no-op without TTY
 - `AgentConsole` — streaming gutter renderer, spinner, space-bar output toggle
+- `SessionStats` — agent-reported token usage and touched-file list for fix prompts
 - `AgentRegistry` — detects installed agents; `findModel`/`modelLabel` for model resolution
 - `Config` — record of all settings; `Config.KEYS` is the authoritative key list
 
