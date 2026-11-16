@@ -214,6 +214,10 @@ Every chat turn is appended to `features/<feature>/_<skill>.transcript.md` (e.g.
 - **Per-skill model** — pin Opus for PRD/TechSpec and Sonnet for task decomposition (or any combination)
 - **Fully configurable** — settings overridable via config file, environment variables, or CLI flags
 - **Per-task logs** — timestamped Markdown summary written after each task
+- **Resume state** — skip passed tasks across runs; content-hash detects task edits; `--fresh` / `--retry-failed`
+- **Run locking** — one active `run` per project via `.aicompanion/state.lock`
+- **Token budget** — `max_tokens_per_run` with agent-reported usage when available; `run --dry-run-tokens` to estimate
+- **Live status bar** — REPL runs show agent/model/task/test state on the last terminal row
 
 ---
 
@@ -494,11 +498,99 @@ On the next `run`, failed tasks are skipped by default. Use `--retry-failed` to 
 
 ---
 
+## Resume across runs
+
+Between runs, aicompanion persists progress in `.aicompanion/state.yml` (YAML). Each task is keyed by `feature/taskfile.md` and stores:
+
+| Field | Meaning |
+|-------|---------|
+| `status` | `passed` or `failed` |
+| `hash` | SHA-256 of the task file body — detects edits |
+| `at` | ISO timestamp of the last outcome |
+
+**Skip rules on the next `run`:**
+
+- **Passed** + unchanged hash → skip (agent and tests not re-run).
+- **Failed** + unchanged hash → skip unless you pass `--retry-failed`.
+- **Hash mismatch** (you edited the task file) → always re-run, regardless of prior status.
+
+The file also records `features_dir`. If you change `features_dir` in config, prior task entries are ignored so resume state from another tree cannot leak in.
+
+**Commands and flags:**
+
+| Action | How |
+|--------|-----|
+| Inspect state | `aicompanion> status` (labels: `passed` / `failed` / `edited` / `pending`) |
+| Clear state | `aicompanion> reset`, or `run --fresh` |
+| Re-run failures only | `run --retry-failed` |
+| All tasks already passed | run exits early; use `--fresh` or edit a task to force work |
+
+State is saved atomically (write to `.tmp` then rename). Only one non-interactive `run` per project may hold the lock at a time (`.aicompanion/state.lock`). A second concurrent run fails fast with a message to wait or remove the lock if a process died without releasing it.
+
+Per-task Markdown logs live under `report_dir` (default `.aicompanion/logs/`) and are independent of resume state.
+
+---
+
+## Token budget and dry-run
+
+Long feature runs can blow through context and cost. aicompanion tracks usage per run and can stop when a budget is exceeded.
+
+| Mechanism | Behavior |
+|-----------|----------|
+| `max_tokens_per_run` / `--max-tokens <N>` | Stop the run once cumulative usage crosses `N` (`0` = unlimited). |
+| Agent-reported usage | When the agent streams ACP usage updates, the budget and the end-of-run summary use those exact counts (and cost, if reported). |
+| Char-based estimate | Fallback (~4 characters per token) when the agent does not report usage; also used for fix-loop and compaction prompts not tied to a single agent turn. |
+
+**Size a run without invoking an agent:**
+
+```bash
+./aicompanion run --dry-run-tokens
+```
+
+This walks every task file, applies the same preamble stripping and prompt shaping as a real run, and prints per-task estimated input tokens plus a total. No ACP session is opened and no tests run. Use it to tune `task_preamble_strip`, `init_instructions`, and `max_tokens_per_run`.
+
+**Related token-saving settings** (also available as `run` flags — see `help` / `--help`):
+
+| Setting | Effect |
+|---------|--------|
+| `init_instructions` | Send summary-format rules once per session instead of on every task prompt. |
+| `task_preamble_strip` | Drop everything before the first `#` heading in each task file before sending. |
+| `pre_check_tests` | Run verification before the agent; skip the agent call if tests already pass. |
+| `compact_after_n_tasks` | After N completed tasks, open a fresh ACP session with a short handoff of completed task names (retries compaction if the handoff prompt fails). |
+| `reuse_session` | `true` (default): one session for all tasks; `false`: new session per task. |
+
+---
+
+## Interactive console (REPL `run`)
+
+During an interactive `run`, a **status bar** pins the last terminal row (agent, model, task progress, test/fix state) using a DECSTBM scroll region so streamed output does not overwrite it. On dumb terminals, non-TTY environments, or fewer than three rows, the status bar is a no-op.
+
+---
+
+## Troubleshooting
+
+| Symptom | What to check |
+|---------|----------------|
+| `No AI agent found on PATH` | Install one supported agent CLI and its provider credentials. Smoke-test with `aicompanion agents`. Without an agent, use `run --dry-run-tokens` to validate features and prompts only. |
+| `Another aicompanion run is in progress` | A prior `run` still holds `.aicompanion/state.lock`, or exited without releasing it. Wait for the other process, or delete the lock file only if you are sure no runner is active. |
+| `[resume] WARNING: could not parse state.yml` | State file was truncated or hand-edited. aicompanion starts with empty resume state; fix or remove the file, or use `reset` / `--fresh`. |
+| Resume ignores old passes | Task file changed (hash mismatch → `edited` in `status`), `features_dir` changed, or you used `--retry-failed` for failures. |
+| Tests hang forever | Set `test_timeout_min` (default 30; `0` = no limit). The test process tree is killed and the task fails with partial output. |
+| Chatty test output floods the terminal | Output on failure is truncated with `fix_output_max_lines` (head + tail). Lower the value or fix the suite. |
+| Fix loop does not converge | Increase `max_fix_attempts`, narrow task scope, or set `verify_commands` so lint/typecheck failures surface before slow tests. Fix prompts include paths the agent touched during the task. |
+| Skill command exits immediately | Interactive skills need a TTY. Run from a real terminal, not a pipe-only CI step. |
+| `mvn test -Dtest="Foo Bar"` fails to parse | Quote-aware splitting is used when `shell:` is not set; use `shell:` if you need pipes or `&&`. |
+
+---
+
 ## Interactive Shell Commands
 
 ```
 aicompanion> run [--features <dir>] [--agent <id>] [--project <dir>]
                  [--no-tests] [--no-stop-on-failure] [--log-thoughts]
+                 [--fresh] [--retry-failed] [--dry-run-tokens]
+                 [--verify-commands <list>] [--max-tokens <N>]
+                 [--pre-check-tests] [--compact-after <N>] …
 
 aicompanion> tasks                      List features and their tasks
 aicompanion> agents                     List installed AI agents
@@ -532,34 +624,38 @@ aicompanion> run
 ## How It Works (Internals)
 
 ```
-./aicompanion run
+./aicompanion run [--dry-run-tokens]
+      │
+      ├─ dry-run ─► TokenEstimator on each task prompt (no agent)
       │
       ▼
-AgentRegistry          detect installed agents (PATH scan)
+RunStateLock.acquire()     exclusive lock (.aicompanion/state.lock)
+      │
+      ▼
+AgentRegistry              detect installed agents (PATH scan)
       │ AgentSpec
       ▼
-StdioAcpClientTransport   launch agent as subprocess (ACP Java SDK 0.10.0)
+StdioAcpClientTransport    launch agent as subprocess (ACP Java SDK 0.10.0)
       │ stdin/stdout
       ▼
 AcpSyncClient
-  .initialize()          ACP handshake + declare FileSystemCapability(read, write)
-  .newSession(cwd)       open session on project root
+  .initialize()             ACP handshake + FileSystemCapability(read, write)
+  .newSession(cwd)          once per run if reuse_session; else per task
       │
       ▼  for each task file (lazy — read one at a time):
-  .prompt(content + summary instruction)
+  RunState.shouldSkip()     resume: skip passed / failed by hash + flags
+  .prompt(task + summary rules; fix-loop adds test output + touched paths)
       │
-      ├── readTextFileHandler    serve any file the agent reads
-      ├── writeTextFileHandler   write any file the agent produces
-      └── requestPermissionHandler  auto-approve (prefer ALLOW_ALWAYS)
-      │
-      ▼
-  stream AgentMessageChunk to console + summaryBuf
+      ├── readTextFileHandler / writeTextFileHandler / requestPermissionHandler
+      ├── SessionStats        agent usage + touched files for fix prompts
+      └── AgentConsole + StatusBar (REPL) stream chunks to console
       │
       ▼
-  TestVerifier.run()     execute test_command, check exit code
-      │
+  TestVerifier.run()        test_command or verify_commands[] in order
+      │                     fix-loop up to max_fix_attempts; optional compaction
       ▼
-  Reporter.write()       .aicompanion/logs/<task>-<timestamp>.md
+  RunState.save()           atomic write to .aicompanion/state.yml
+  Reporter.write()          .aicompanion/logs/<task>-<timestamp>.md
 ```
 
 The agent runs with full filesystem access via the client-side handlers. The `--yolo` flag additionally tells the agent to skip its own internal approval prompts.
@@ -580,8 +676,11 @@ aicompanion/
 │   ├── Shell.java                 JLine3 interactive REPL + skill discovery
 │   ├── Help.java                  Help text (static + dynamic skill section)
 │   ├── TaskRunner.java            ACP session + lazy task execution loop
-│   ├── TestVerifier.java          Runs test command, captures output
+│   ├── RunState.java              Resume state (SHA-256 task hashes)
+│   ├── RunStateLock.java          Exclusive lock for concurrent runs
+│   ├── TestVerifier.java          Runs verify_commands / test_command
 │   ├── Reporter.java              Writes per-task Markdown summary logs
+│   ├── console/StatusBar.java     REPL bottom-row run status (DECSTBM)
 │   ├── agent/
 │   │   ├── AgentSpec.java         Agent definitions (id, binary, params builder)
 │   │   ├── AgentRegistry.java     Agent detection and resolution
