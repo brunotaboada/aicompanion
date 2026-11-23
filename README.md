@@ -405,7 +405,7 @@ cp .aicompanion.yml.example .aicompanion.yml
 | `task_preamble_strip` | `false` | Strip everything before the first `#` heading in task files before sending |
 | `compact_after_n_tasks` | `0` | Open a fresh ACP session every N tasks with a short handoff (`0` = never) |
 | `pre_check_tests` | `false` | Run tests before each task; skip the agent call if they already pass |
-| `max_tokens_per_run` | `0` | Stop the run when token usage exceeds this budget (`0` = unlimited) |
+| `max_tokens_per_run` | `0` | Stop the run when token usage exceeds this budget (`0` = unlimited). Uses agent-reported ACP usage when available; otherwise a character-based estimate |
 | `init_instructions` | `false` | Send the summary-format rules once per session instead of on every task |
 
 ### Override priority
@@ -573,6 +573,7 @@ During an interactive `run`, a **status bar** pins the last terminal row (agent,
 |---------|----------------|
 | `No AI agent found on PATH` | Install one supported agent CLI and its provider credentials. Smoke-test with `aicompanion agents`. Without an agent, use `run --dry-run-tokens` to validate features and prompts only. |
 | `Another aicompanion run is in progress` | A prior `run` still holds `.aicompanion/state.lock`, or exited without releasing it. Wait for the other process, or delete the lock file only if you are sure no runner is active. |
+| `aicompanion: I/O error — …` (non-interactive `run`) | Could not create `.aicompanion/` or open `state.lock` (permissions, read-only filesystem, full disk). Fix directory permissions or disk space and retry. |
 | `[resume] WARNING: could not parse state.yml` | State file was truncated or hand-edited. aicompanion starts with empty resume state; fix or remove the file, or use `reset` / `--fresh`. |
 | Resume ignores old passes | Task file changed (hash mismatch → `edited` in `status`), `features_dir` changed, or you used `--retry-failed` for failures. |
 | Tests hang forever | Set `test_timeout_min` (default 30; `0` = no limit). The test process tree is killed and the task fails with partial output. |
